@@ -1,0 +1,10 @@
+.worktrees/
+vm/proxy/.venv/
+vm/proxy/__pycache__/
+vm/proxy/**/__pycache__/
+vm/proxy/.pytest_cache/
+*.pyc
+.env
+.env.age
+ansible/inventory/hermes-machine.yml
+ansible/host_vars/localhost.yml
