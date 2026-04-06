@@ -192,6 +192,8 @@ from functools import lru_cache
 
 
 def _load_system_prompt() -> str:
+    # Note: env var is SYSTEM_PROMPT_FILE (a file path), not SYSTEM_PROMPT_OVERRIDE.
+    # The infrastructure plan and .env.example must use SYSTEM_PROMPT_FILE.
     path = os.getenv("SYSTEM_PROMPT_FILE", "/app/system_prompt.txt")
     try:
         with open(path) as f:
@@ -866,7 +868,7 @@ async def test_loop_executes_tool_and_loops(cfg):
                     "role": "assistant",
                     "content": "",
                     "tool_calls": [
-                        {"function": {"name": "web_search", "arguments": {"query": "Python 3.13"}}}
+                        {"function": {"name": "web_search", "arguments": '{"query": "Python 3.13"}'}}
                     ],
                 },
                 "done": True,
@@ -902,7 +904,7 @@ async def test_loop_raises_on_max_rounds_exceeded(cfg):
             "message": {
                 "role": "assistant",
                 "content": "",
-                "tool_calls": [{"function": {"name": "web_search", "arguments": {"query": "loop"}}}],
+                "tool_calls": [{"function": {"name": "web_search", "arguments": '{"query": "loop"}'}}],
             },
             "done": True,
         })
@@ -961,6 +963,7 @@ Expected: `ModuleNotFoundError: No module named 'proxy.tool_loop'`
 
 ```python
 import asyncio
+import json
 import httpx
 from proxy.config import Config
 from proxy.tools import SEARXNG_TOOL_SCHEMA, dispatch_tool
@@ -1009,7 +1012,9 @@ async def run_tool_loop(
                 had_tool_calls = True
                 for call in tool_calls:
                     fn_name = call["function"]["name"]
-                    fn_args = call["function"]["arguments"]
+                    raw_args = call["function"]["arguments"]
+                    # Ollama returns arguments as a JSON-encoded string, not a dict
+                    fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     result = await dispatch_tool(fn_name, fn_args, config.searxng_url)
                     current_messages.append({"role": "tool", "content": result})
 
@@ -1239,6 +1244,25 @@ def test_copy_returns_403(client):
 def test_unknown_endpoint_returns_403(client):
     resp = client.post("/api/unknown")
     assert resp.status_code == 403
+
+
+# --- Rate limiting ---
+
+def test_rate_limited_request_returns_429():
+    burst_one_cfg = Config(
+        ollama_host="http://mock-ollama:11434",
+        allowed_models=["hermes3"],
+        searxng_url="http://mock-searxng:8080",
+        rate_limit_burst=1,
+        rate_limit_per_min=1,
+        max_tool_rounds=10,
+        tool_timeout_secs=30,
+        system_prompt="You are Hermes.",
+    )
+    burst_one_client = TestClient(create_app(burst_one_cfg))
+    burst_one_client.get("/health")  # consumes the 1 token
+    resp = burst_one_client.get("/health")  # should be rate limited
+    assert resp.status_code == 429
 
 
 # --- Passthrough endpoints ---
