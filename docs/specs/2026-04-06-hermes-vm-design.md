@@ -53,29 +53,37 @@ macOS Host (48GB RAM)
 
 ### Host Firewall (pf)
 
-Port 11434 (Ollama) is locked to three sources only. All other inbound traffic to that port is blocked regardless of existing ZeroTier rules.
+Port 11434 (Ollama) is locked to three sources only. All other inbound traffic to that port is blocked.
+
+**Rule order matters:** `quick` rules exit on first match, so passes must come before the block:
 
 ```
 # /etc/pf.d/hermes.conf
-# Variables substituted by Ansible from inventory vars
-# ZT_INTERFACE = ztXXXXXXXX  (your ZeroTier interface name)
-# ZT_SUBNET    = 10.x.x.0/24  (your ZeroTier network subnet)
-# VM_SUBNET    = 192.168.64.0/24  (Podman machine bridge subnet)
+# Variables substituted by Ansible from inventory vars:
+# ZT_INTERFACE     = ztXXXXXXXX        (ZeroTier interface name)
+# ZT_SUBNET        = 10.x.x.0/24       (ZeroTier network subnet)
+# VM_BRIDGE_IFACE  = bridge100          (Podman machine bridge — Ansible discovers this
+#                                        via `podman machine inspect hermes-machine`)
+# VM_SUBNET        = 192.168.64.0/24   (Podman machine bridge subnet)
 
-# Block Ollama from everything by default
-block in quick proto tcp to any port 11434
-
-# Allow: localhost, ZeroTier, VM bridge only
-pass in quick on lo0 proto tcp from 127.0.0.1 to any port 11434
-pass in quick on $ZT_INTERFACE proto tcp from $ZT_SUBNET to any port 11434
-pass in quick proto tcp from $VM_SUBNET to any port 11434
+# Allow first, block everything else — order is critical with pf quick rules
+pass in quick on lo0            proto tcp from 127.0.0.1  to any port 11434
+pass in quick on $ZT_INTERFACE  proto tcp from $ZT_SUBNET  to any port 11434
+pass in quick on $VM_BRIDGE_IFACE proto tcp from $VM_SUBNET to any port 11434
+block in quick                  proto tcp                  to any port 11434
 ```
+
+The VM bridge interface (`VM_BRIDGE_IFACE`) is pinned to the interface name, not just the subnet, to prevent IP spoofing bypasses. Ansible discovers the actual interface name at provisioning time via `podman machine inspect`.
+
+**pf persistence risk:** macOS does not persist custom pf rules across system updates — they can silently revert to defaults, leaving Ollama exposed on all interfaces. `just status` includes a pf rule check and warns loudly if the hermes rules are not loaded. The Ansible `firewall` role also sets up a launchd plist to reload `hermes.pf.conf` at boot.
 
 WebUI (port 3000) is forwarded from the VM to the host. Existing ZeroTier rules allow VPN clients to reach the host — no additional pf rules needed for WebUI access.
 
 ### Ollama Binding
 
-Ollama must listen on `0.0.0.0:11434` so the VM bridge can reach it. The `pf` rules above compensate by blocking all other sources. Set via `OLLAMA_HOST=0.0.0.0` in the launchd plist, managed by Ansible.
+Ollama listens on `0.0.0.0:11434` so the VM bridge can reach it. The `pf` rules above block all sources except the three whitelisted ones. Set via `OLLAMA_HOST=0.0.0.0` in the launchd plist.
+
+**Risk:** If pf rules are ever flushed (macOS update, manual reset), Ollama becomes reachable on all interfaces. The launchd boot plist for pf and the `just status` check together mitigate this.
 
 ### VM Isolation
 
@@ -100,22 +108,27 @@ The old proxy was broken — it forwarded raw prompts to Ollama without tool-cal
 |-------|----------|
 | **Streaming passthrough** | SSE streaming from Ollama forwarded in real time (not buffered) |
 | **Tool schema injection** | Injects SearXNG `web_search` tool definition into every `/api/chat` request |
-| **System prompt injection** | Injects hardcoded system prompt defining Hermes's role and capabilities |
+| **System prompt injection** | System prompt is hardcoded in the proxy image; `SYSTEM_PROMPT_OVERRIDE` env var optionally replaces it (plain string, no shell quoting — loaded from a file path to avoid quoting issues) |
 | **Architecture/host filter** | Prompts asking about host OS, VM, ports, IP addresses, architecture → canned refusal, not forwarded |
 | **Jailbreak filter** | Pattern-based filter (carried over from old proxy) |
-| **Endpoint whitelist** | Only `/api/chat` and `/api/generate` forwarded; `/api/pull`, `/api/delete`, `/api/copy`, `/api/push` → 403 |
-| **Model whitelist** | Only models listed in `ALLOWED_MODELS` forwarded; others → 403 |
+| **Endpoint whitelist — write-blocked** | `/api/pull`, `/api/delete`, `/api/copy`, `/api/push` → 403 always |
+| **Endpoint whitelist — read-only pass-through** | `/api/tags`, `/api/show`, `/api/version`, `/api/ps` → forwarded without filters (needed by Open WebUI for model listing and health checks); model whitelist still applied to `/api/show` |
+| **Generation endpoints** | `/api/chat`, `/api/generate` → full filter stack applied |
+| **Model whitelist** | Only models listed in `ALLOWED_MODELS` forwarded on generation endpoints; others → 403 |
 | **Rate limiting** | Token bucket (configurable burst + rate, carried over from old proxy) |
 
 ### Tool Call Loop
 
-The proxy manages the full multi-turn tool use loop:
+The proxy manages the full multi-turn tool use loop with guards against runaway execution:
+
 1. Send request to Ollama with `tools:` parameter
 2. If Ollama responds with a `tool_calls` field → proxy executes the tool (calls SearXNG internally)
 3. Proxy appends tool result as a `tool` role message
 4. Proxy re-sends to Ollama with updated context
-5. Loop until Ollama responds with a plain `assistant` message
-6. Stream final response to caller
+5. Repeat — **maximum 10 tool call rounds per conversation turn** (configurable via `MAX_TOOL_ROUNDS` env var)
+6. **Hard timeout of 120 seconds** per full turn (`TOOL_TIMEOUT_SECS` env var) — connection closed with error if exceeded
+7. On loop limit or timeout → return an error message to the caller rather than hanging
+8. On plain `assistant` response → stream to caller
 
 ---
 
@@ -134,12 +147,17 @@ The proxy manages the full multi-turn tool use loop:
 
 Each container is defined as a `.container` quadlet file in `/etc/containers/systemd/` inside the VM. systemd manages lifecycle — auto-start on boot, restart on failure. Ansible deploys all quadlet files via SSH into the VM.
 
-All containers carry `io.containers.autoupdate=registry` label so a daily systemd timer running `podman auto-update` pulls fresh images from ghcr.io automatically.
+**Two separate update paths:**
+- **Image updates** (`just update-images`): runs `podman auto-update` inside the VM. Pulls new container images; containers with `io.containers.autoupdate=registry` are restarted automatically. A daily systemd timer also does this automatically.
+- **Config/quadlet updates** (`just update`): re-runs `ansible-playbook site.yml`. Ansible copies updated quadlet files, triggers `systemctl daemon-reload`, and restarts affected services. Required when env vars, volume mounts, or quadlet structure changes — `podman auto-update` does NOT pick these up.
+
+All containers include a `HealthCmd` so systemd can distinguish running-but-broken from running-and-healthy.
 
 **hermes-proxy.container**
 - Image: `ghcr.io/{owner}/hermes-proxy:latest`
 - Port: `8000:8000`
-- Env: `ALLOWED_MODELS`, `OLLAMA_HOST`, `RATE_LIMIT_*`, `SYSTEM_PROMPT`
+- Env: `ALLOWED_MODELS`, `OLLAMA_HOST`, `RATE_LIMIT_*`, `MAX_TOOL_ROUNDS`, `TOOL_TIMEOUT_SECS`
+- HealthCmd: `curl -f http://localhost:8000/health`
 - Network: `hermes.network`
 - Restart: `always`
 
@@ -148,6 +166,7 @@ All containers carry `io.containers.autoupdate=registry` label so a daily system
 - Port: `3000:8080`
 - Volume: `hermes-webui-data:/app/backend/data`
 - Env: `OLLAMA_BASE_URL=http://hermes-proxy:8000`, `WEBUI_AUTH=true`
+- HealthCmd: `curl -f http://localhost:8080/health`
 - Network: `hermes.network`
 - Restart: `always`
 
@@ -155,6 +174,7 @@ All containers carry `io.containers.autoupdate=registry` label so a daily system
 - Image: `docker.io/searxng/searxng:latest`
 - No external port (internal only)
 - Volume: `hermes-searxng-config:/etc/searxng`
+- HealthCmd: `curl -f http://localhost:8080/healthz`
 - Network: `hermes.network`
 - Restart: `always`
 
@@ -165,6 +185,17 @@ All containers carry `io.containers.autoupdate=registry` label so a daily system
 - Network: `hermes.network`
 - Restart: `always`
 
+### Discord Bot API Contract
+
+The Discord bot communicates with the proxy using the Ollama `/api/chat` wire format:
+
+- **Endpoint**: `POST http://hermes-proxy:8000/api/chat`
+- **Request**: `{ "model": "hermes3", "messages": [...], "stream": true }`
+- **Conversation history**: Bot maintains a per-channel in-memory message list (system prompt + rolling history). History is capped at 20 messages to stay within context limits. History is lost on bot container restart (acceptable for personal use).
+- **Streaming**: Bot receives SSE stream, buffers tokens, and edits the Discord reply message progressively as chunks arrive (Discord edit-message API).
+- **Message length**: Discord messages capped at 2000 characters. Bot splits long responses into sequential messages.
+- **Commands**: Bot responds to `!clear` to reset conversation history for a channel.
+
 ### Named Volumes
 
 | Volume | Purpose |
@@ -172,7 +203,30 @@ All containers carry `io.containers.autoupdate=registry` label so a daily system
 | `hermes-webui-data` | Open WebUI: user accounts, chat history, settings |
 | `hermes-searxng-config` | SearXNG: engine config, settings.yml |
 
-Volumes persist across container image updates and VM restarts.
+Volumes persist across container image updates and VM restarts. **Warning:** `just teardown` destroys the VM and all volumes inside it. Use `just rebuild` instead of bare teardown when you want a clean VM but need to keep your WebUI history and SearXNG config — it runs backup → teardown → setup → restore automatically.
+
+### SearXNG Configuration
+
+`settings.yml` must explicitly enable the JSON API format — it is disabled by default in upstream SearXNG (anti-scraper measure), which would silently break all proxy tool calls with a 403.
+
+Required settings in `vm/searxng/settings.yml`:
+```yaml
+search:
+  formats:
+    - html
+    - json          # must be present — proxy uses /search?format=json
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: d
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: w
+```
 
 ### Log Rotation
 
@@ -186,18 +240,23 @@ MaxRetentionSec=2weeks
 
 ## Host Services (launchd)
 
-Two launchd plists deployed by Ansible to `~/Library/LaunchAgents/`:
+Three launchd plists deployed by Ansible to `~/Library/LaunchAgents/`:
 
 **com.hermes.ollama.plist**
 - Runs: `ollama serve`
 - Env: `OLLAMA_HOST=0.0.0.0`
-- `KeepAlive: true` — restarts on crash
+- `KeepAlive: true` — restarts on crash (ollama serve is a long-running daemon, KeepAlive is correct here)
 - `RunAtLoad: true` — starts on login
 
 **com.hermes.podman-machine.plist**
-- Runs: `podman machine start hermes-machine`
+- Runs: a wrapper script `scripts/start-hermes-machine.sh` that calls `podman machine start hermes-machine` and polls until the machine reports running
 - `RunAtLoad: true` — starts on login
-- `KeepAlive: true` — restarts if the machine exits unexpectedly
+- `KeepAlive: false` — the start command exits after the machine is up; KeepAlive would cause a tight restart loop since `podman machine start` on an already-running machine exits immediately. Instead the script checks state before starting.
+
+**com.hermes.pf.plist**
+- Runs: `pfctl -f /etc/pf.d/hermes.conf -e`
+- `RunAtLoad: true` — reloads hermes pf rules on every login/reboot
+- Ensures rules survive macOS updates that reset pf to defaults
 
 ---
 
@@ -207,47 +266,52 @@ Two launchd plists deployed by Ansible to `~/Library/LaunchAgents/`:
 
 Ansible is the single source of truth for provisioning. All host and VM setup is defined as idempotent playbooks — safe to re-run for updates or fresh installs.
 
+**Inventory generation:** The Podman machine SSH port is dynamic. Before running `ansible-playbook`, `just` runs a script (`scripts/gen-inventory.sh`) that calls `podman machine ssh-config hermes-machine`, extracts the SSH port, and writes `ansible/inventory/hermes-machine.yml` with the correct `ansible_host=127.0.0.1` and `ansible_port=<discovered port>`. This generated file is gitignored.
+
 **Playbook structure:**
 
 ```
 ansible/
 ├── site.yml                  # master playbook (runs all roles)
 ├── inventory/
-│   └── host.yml              # localhost + hermes-machine (SSH via 127.0.0.1:$(podman machine ssh-config hermes-machine | grep Port))
+│   ├── localhost.yml         # static — always localhost
+│   └── hermes-machine.yml    # generated by scripts/gen-inventory.sh (gitignored)
 ├── group_vars/
 │   └── all.yml               # non-secret defaults
 ├── host_vars/
-│   └── localhost.yml         # host-specific vars (auto-generated from .env by just setup)
+│   └── localhost.yml         # generated from .env by just setup (gitignored)
 └── roles/
     ├── prerequisites/        # brew bundle, verify tools installed
     ├── ollama/               # launchd plist, OLLAMA_HOST, model pulls
-    ├── firewall/             # pf rules template + load
-    ├── podman-machine/       # create/start hermes-machine, launchd plist
-    ├── vm-quadlets/          # SSH into VM, deploy quadlet files + env file
-    ├── vm-volumes/           # create named volumes, seed SearXNG config
-    └── vm-autoupdate/        # systemd timer for podman auto-update + journald caps
+    ├── firewall/             # pf rules template + load + boot plist
+    ├── podman-machine/       # create/start hermes-machine, launchd wrapper script + plist
+    ├── vm-quadlets/          # SSH into VM, deploy quadlet files + env file, daemon-reload
+    ├── vm-volumes/           # create named volumes, seed SearXNG settings.yml
+    └── vm-autoupdate/        # daily podman auto-update timer + journald caps
 ```
 
-Running `just setup` executes `ansible-playbook ansible/site.yml`. Running `just update` runs the same playbook — Ansible's idempotency means only what changed gets updated.
+Running `just setup` generates inventory → then executes `ansible-playbook ansible/site.yml`. Running `just update` does the same — Ansible's idempotency means only changed resources are updated.
 
 ### Just (task runner)
 
-`justfile` provides simple commands so contributors don't need to remember Ansible syntax:
-
 ```makefile
-setup:          # first-time install (brew bundle + ansible-playbook site.yml)
-update:         # pull latest + re-run playbook
-logs:           # tail systemd journal from VM
-restart:        # restart all containers in VM
-status:         # show container + service status
-ssh:            # SSH into hermes-machine
-pull-models:    # ollama pull for all ALLOWED_MODELS
-teardown:       # stop + delete hermes-machine (keeps volumes)
+setup:           # one-time: brew install just → brew bundle → gen-inventory → ansible site.yml
+update:          # git pull + gen-inventory + ansible site.yml (config + quadlet changes)
+update-images:   # SSH into VM and run podman auto-update (image-only updates)
+logs:            # tail systemd journal from VM
+restart:         # restart all containers in VM
+status:          # container status + pf rule verification (warns if hermes pf rules not loaded)
+ssh:             # SSH into hermes-machine
+pull-models:     # ollama pull for all ALLOWED_MODELS
+backup-volumes:  # export hermes-webui-data + hermes-searxng-config to ./backups/
+teardown:        # warns about volume loss, requires --confirm flag, then stops + deletes hermes-machine
+rebuild:         # backup-volumes → teardown --confirm → setup → restore-volumes (full clean rebuild preserving data)
+restore-volumes: # import volume data from ./backups/ into a running hermes-machine
+encrypt-env:     # age-encrypt .env → .env.age
+decrypt-env:     # age-decrypt .env.age → .env
 ```
 
 ### Brewfile
-
-Lists all required host prerequisites — one `brew bundle` installs everything:
 
 ```ruby
 brew "podman"
@@ -256,26 +320,23 @@ brew "ollama"
 brew "ansible"
 brew "just"
 brew "gh"
-brew "age"        # secrets encryption
+brew "age"
 cask "podman-desktop"   # optional GUI
 ```
 
 ### age (secrets encryption)
 
-`.env` files contain sensitive values (Discord token etc.). `age` encrypts the `.env` so users can optionally commit an encrypted version to a private fork without exposing secrets.
+`.env` files contain sensitive values (Discord token etc.). `age` encrypts the `.env` so users can optionally commit an encrypted version to a private fork.
 
 - `just encrypt-env` → produces `.env.age` (safe to commit to private fork)
 - `just decrypt-env` → restores `.env` from `.env.age` using your age key
-- Public repo ships only `.env.example` — the age workflow is opt-in
+- Public repo ships only `.env.example` — age workflow is opt-in
 
 ### Renovate (dependency updates)
 
-Renovate GitHub App is configured on the repo to open automatic PRs when:
-- Container image digests update (Open WebUI, SearXNG)
-- Python dependency versions in `requirements.txt` update
-- GitHub Actions runner versions update
+Renovate tracks digest-pinned image references in quadlet files (not `:latest` — `:latest` gives Renovate nothing to compare). Quadlet files use pinned digests (e.g., `image@sha256:...`) and Renovate opens PRs when upstream digests change. The `just update-images` / `podman auto-update` path handles between-PR drift for the owner; the Renovate PRs keep the repo's pinned digests current for other users cloning it.
 
-`renovate.json` ships in the repo root with sensible defaults (automerge patch versions, group minor updates into weekly PRs).
+`renovate.json` ships in the repo root: automerge patch Python deps, group container digest updates into weekly PRs.
 
 ---
 
@@ -283,20 +344,24 @@ Renovate GitHub App is configured on the repo to open automatic PRs when:
 
 ### Repo: `hermes-vm`
 
-Public repo. Anyone with an Apple Silicon Mac can clone, fill in `.env`, and run `just setup`.
+Public repo. Anyone with an Apple Silicon Mac can clone, fill in `.env`, and run `just setup`. Intel Mac not supported (images are `linux/arm64` only — no Metal, no GPU passthrough on QEMU either way).
 
 ```
 hermes-vm/
 ├── README.md
-├── justfile                          # just commands
-├── Brewfile                          # brew bundle prerequisites
-├── .env.example                      # all config as placeholders
-├── .gitignore                        # excludes .env, .env.age
-├── renovate.json                     # Renovate dependency update config
+├── justfile
+├── Brewfile
+├── renovate.json
+├── .env.example
+├── .gitignore                        # excludes .env, .env.age, ansible/inventory/hermes-machine.yml, ansible/host_vars/localhost.yml
+│
+├── scripts/
+│   ├── gen-inventory.sh              # discovers Podman SSH port, writes ansible inventory
+│   └── start-hermes-machine.sh      # polls until hermes-machine is running (used by launchd)
 │
 ├── ansible/
 │   ├── site.yml
-│   ├── inventory/host.yml
+│   ├── inventory/localhost.yml
 │   ├── group_vars/all.yml
 │   └── roles/
 │       ├── prerequisites/
@@ -319,13 +384,14 @@ hermes-vm/
 │   │   ├── main.py
 │   │   ├── filters.py
 │   │   ├── tools.py
+│   │   ├── system_prompt.txt         # system prompt as a file, not env var string
 │   │   └── requirements.txt
 │   ├── discord-bot/
 │   │   ├── Dockerfile
 │   │   ├── bot.py
 │   │   └── requirements.txt
 │   └── searxng/
-│       └── settings.yml              # reused from existing project
+│       └── settings.yml
 │
 ├── host/
 │   └── firewall/
@@ -333,8 +399,8 @@ hermes-vm/
 │
 └── .github/
     └── workflows/
-        ├── build-images.yml          # push to main → build + push to ghcr.io
-        └── release.yml               # tag v*.*.* → versioned release + GitHub Release
+        ├── build-images.yml
+        └── release.yml
 ```
 
 ### .env.example
@@ -344,21 +410,21 @@ hermes-vm/
 ZT_INTERFACE=ztXXXXXXXX
 ZT_SUBNET=10.x.x.0/24
 
-# Podman machine bridge (default for Apple Silicon: 192.168.64.0/24)
+# Podman machine bridge (Ansible discovers VM_BRIDGE_IFACE automatically)
 VM_SUBNET=192.168.64.0/24
 
 # Ollama
-OLLAMA_HOST=0.0.0.0
 ALLOWED_MODELS=hermes3,gemma4:27b
 
 # Discord
 DISCORD_TOKEN=your-bot-token-here
 DISCORD_CHANNEL_ID=your-channel-id-here
 
-# Proxy
+# Proxy tuning
 RATE_LIMIT_BURST=20
 RATE_LIMIT_PER_MIN=5
-SYSTEM_PROMPT="You are Hermes, a helpful assistant..."
+MAX_TOOL_ROUNDS=10
+TOOL_TIMEOUT_SECS=120
 
 # GitHub (for image pulls + repo)
 GHCR_OWNER=your-github-username
@@ -367,46 +433,49 @@ GHCR_OWNER=your-github-username
 ### GitHub Actions Workflows
 
 **build-images.yml** (on push to `main`):
-1. Build `hermes-proxy` image (linux/arm64 — Apple Silicon only; Intel Mac not supported)
-2. Build `hermes-discord` image (linux/arm64)
-3. Push to `ghcr.io/{owner}/hermes-proxy:latest` + `:sha-{commit}`
-4. Images public — no auth required to pull
+1. Build `hermes-proxy` + `hermes-discord` images (`linux/arm64`)
+2. Push `ghcr.io/{owner}/hermes-proxy:latest` + `:sha-{commit}`
+3. Images public — no auth required to pull
 
 **release.yml** (on tag `v*.*.*`):
 1. Build both images
-2. Push with version tag (`:v1.0.0`) + `:latest`
+2. Push with version tag + `:latest`
 3. Create GitHub Release with auto-generated changelog
-
-### Auto-Update in VM
-
-A systemd timer runs `podman auto-update` daily. Containers with `io.containers.autoupdate=registry` are checked against ghcr.io — if a newer image exists the container restarts with it. Zero manual intervention.
 
 ---
 
 ## Setup Flow
 
 ```bash
-# One-time bootstrap (just isn't available yet)
+# One-time bootstrap
 brew install just
 gh auth login
-cp .env.example .env    # fill in your values
+cp .env.example .env    # fill in ZT_INTERFACE, ZT_SUBNET, DISCORD_TOKEN, etc.
 
-# Install all other prerequisites + provision everything
-just setup              # runs brew bundle then ansible-playbook site.yml end-to-end
+# Provision everything
+just setup
 ```
 
-Ansible `site.yml` execution order:
-1. `prerequisites` role — verify all tools present
-2. `ollama` role — deploy launchd plist, set `OLLAMA_HOST=0.0.0.0`, pull allowed models
-3. `firewall` role — render pf template with env vars, load rules, persist across reboots
-4. `podman-machine` role — create `hermes-machine` (6GB/4CPU/40GB), deploy launchd plist
-5. `vm-quadlets` role — SSH into VM, write quadlet files + systemd env file, daemon-reload
-6. `vm-volumes` role — create named volumes, seed SearXNG `settings.yml`
-7. `vm-autoupdate` role — install systemd timer, cap journald
+`just setup` execution order:
+1. `brew bundle` — install all prerequisites
+2. `scripts/gen-inventory.sh` — generates Ansible inventory (after Podman machine created)
+3. `ansible-playbook site.yml`:
+   - `prerequisites` — verify tools
+   - `ollama` — launchd plist + model pulls
+   - `firewall` — render + load pf rules + boot plist
+   - `podman-machine` — create hermes-machine, deploy start script + launchd plist
+   - `vm-quadlets` — SSH, deploy quadlets + env file, daemon-reload
+   - `vm-volumes` — create volumes, seed SearXNG settings.yml
+   - `vm-autoupdate` — daily timer + journald cap
 
-**Update flow:**
+**Config update flow** (quadlet/env changes):
 ```bash
-git pull && just update    # idempotent — only changed resources are updated
+git pull && just update
+```
+
+**Image-only update** (pull latest container images):
+```bash
+just update-images
 ```
 
 ---
@@ -433,14 +502,17 @@ Gemma 4 27B (~18GB in 4-bit quantization): loaded into Apple Silicon unified mem
 
 - [ ] `just setup` completes end-to-end on a fresh Apple Silicon Mac
 - [ ] Hermes responds in Discord with working tool use (web search via SearXNG)
-- [ ] Open WebUI accessible over ZeroTier, login required
-- [ ] Port 11434 unreachable from any source except localhost, ZeroTier subnet, VM bridge
+- [ ] Open WebUI accessible over ZeroTier, login required, model list populates correctly
+- [ ] Port 11434 unreachable from any source except localhost, ZeroTier subnet, VM bridge interface
 - [ ] VM reboot → all containers restart automatically via quadlets
-- [ ] Host reboot → Ollama + VM restart automatically via launchd
+- [ ] Host reboot → Ollama + VM + pf rules restart automatically via launchd
+- [ ] `just status` warns if pf hermes rules are not loaded
 - [ ] Prompt asking about host/VM architecture returns canned refusal
 - [ ] Attempt to pull a model via Ollama API returns 403
 - [ ] Attempt to use non-whitelisted model returns 403
+- [ ] Tool call loop stops at MAX_TOOL_ROUNDS and returns error instead of hanging
 - [ ] `git push` to `main` triggers image build + push to ghcr.io
-- [ ] `podman auto-update` timer pulls new images daily without intervention
+- [ ] `just update-images` pulls new images without requiring full Ansible re-run
 - [ ] `just update` re-runs Ansible idempotently without breaking running services
-- [ ] Renovate opens PRs for dependency updates automatically
+- [ ] `just teardown` requires `--confirm` flag and warns about volume loss
+- [ ] Renovate opens PRs for digest-pinned image updates
