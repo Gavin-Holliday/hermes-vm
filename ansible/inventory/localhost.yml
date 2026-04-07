@@ -1,0 +1,5 @@
+# Static inventory — always localhost. Never commit hermes-machine.yml (it's generated).
+all:
+  hosts:
+    localhost:
+      ansible_connection: local
