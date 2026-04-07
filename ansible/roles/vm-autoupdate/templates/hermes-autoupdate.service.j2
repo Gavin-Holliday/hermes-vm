@@ -1,0 +1,9 @@
+[Unit]
+Description=Hermes auto-update container images
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/podman auto-update
+StandardOutput=journal
+StandardError=journal
