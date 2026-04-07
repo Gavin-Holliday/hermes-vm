@@ -1,0 +1,25 @@
+[Unit]
+Description=Hermes Open WebUI
+After=hermes-proxy.service
+Wants=hermes-proxy.service
+
+[Container]
+Image=ghcr.io/open-webui/open-webui:latest
+ContainerName=hermes-webui
+PublishPort=3000:8080
+Environment=OLLAMA_BASE_URL=http://hermes-proxy:8000
+Environment=WEBUI_AUTH=true
+Volume=hermes-webui-data:/app/backend/data
+Network=hermes.network
+HealthCmd=curl -sf http://localhost:8080/health
+HealthInterval=30s
+HealthRetries=3
+HealthStartPeriod=30s
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target
