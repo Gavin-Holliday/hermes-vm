@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "America/New_York",
+  "schedule": ["before 6am on monday"],
+  "prCreation": "immediate",
+  "labels": ["dependencies"],
+  "pinDigests": true,
+  "packageRules": [
+    {
+      "description": "Automerge patch-level Python dependency updates",
+      "matchManagers": ["pip_requirements"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Group all container digest updates into a single weekly PR",
+      "matchManagers": ["regex"],
+      "matchDepTypes": ["container"],
+      "groupName": "container digests",
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "description": "Group GitHub Actions updates weekly",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "automerge": false
+    }
+  ],
+  "pip_requirements": {
+    "fileMatch": ["vm/proxy/requirements\\.txt$", "vm/discord-bot/requirements\\.txt$"]
+  },
+  "regexManagers": [
+    {
+      "description": "Track container image digests in quadlet files. Renovate will open a pin digests PR on first run.",
+      "fileMatch": ["vm/quadlets/.*\\.container$"],
+      "matchStrings": [
+        "Image=(?<depName>[^@:\\n]+):(?<currentValue>[^@\\n]+)@(?<currentDigest>sha256:[a-f0-9]+)",
+        "Image=(?<depName>[^@:\\n]+):(?<currentValue>[^@\\n]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    }
+  ]
+}
