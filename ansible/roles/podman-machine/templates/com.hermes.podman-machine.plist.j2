@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.podman-machine</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- playbook_dir is the ansible/ directory; go up one level to reach the repo root -->
+        <string>{{ playbook_dir }}/../scripts/start-hermes-machine.sh</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>{{ ansible_env.HOME }}</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- KeepAlive=false: the script exits after the machine is up.
+         KeepAlive=true would cause a tight restart loop since
+         `podman machine start` exits immediately on an already-running machine. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.hermes.podman-machine.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.hermes.podman-machine.err.log</string>
+</dict>
+</plist>
