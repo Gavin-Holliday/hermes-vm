@@ -1,0 +1,28 @@
+---
+# This play runs on hermes-machine as the `core` user (rootless Podman).
+# Do NOT use `become: true` for podman volume commands — escalating to root creates
+# root-owned volumes that the rootless containers cannot access.
+
+- name: Create hermes-webui-data volume
+  ansible.builtin.command: podman volume create hermes-webui-data
+  register: webui_vol
+  changed_when: webui_vol.rc == 0
+  failed_when: webui_vol.rc != 0 and "already exists" not in webui_vol.stderr
+
+- name: Create hermes-searxng-config volume
+  ansible.builtin.command: podman volume create hermes-searxng-config
+  register: searxng_vol
+  changed_when: searxng_vol.rc == 0
+  failed_when: searxng_vol.rc != 0 and "already exists" not in searxng_vol.stderr
+
+- name: Get SearXNG volume mountpoint
+  ansible.builtin.command: >
+    podman volume inspect hermes-searxng-config --format "{% raw %}{{.Mountpoint}}{% endraw %}"
+  register: searxng_mount
+  changed_when: false
+
+- name: Copy SearXNG settings.yml into volume (no become — rootless volume owned by core)
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../vm/searxng/settings.yml"
+    dest: "{{ searxng_mount.stdout | trim }}/settings.yml"
+    mode: "0644"
