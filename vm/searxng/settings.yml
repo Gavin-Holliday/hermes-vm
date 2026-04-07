@@ -1,0 +1,35 @@
+# SearXNG configuration for hermes-vm
+# JSON API format must be explicitly enabled — it's disabled upstream (anti-scraper measure).
+# Without it, all proxy web_search tool calls silently fail with 403.
+
+use_default_settings: true
+
+server:
+  secret_key: "change-me-in-production"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  formats:
+    - html
+    - json           # REQUIRED — proxy uses /search?format=json
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: d
+    disabled: false
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: w
+    disabled: false
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false

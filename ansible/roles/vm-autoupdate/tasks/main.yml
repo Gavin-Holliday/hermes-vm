@@ -1,0 +1,42 @@
+---
+- name: Ensure journald config directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Configure journald log rotation (cap at 500MB, 2 weeks)
+  ansible.builtin.copy:
+    content: |
+      [Journal]
+      SystemMaxUse=500M
+      MaxRetentionSec=2weeks
+    dest: /etc/systemd/journald.conf.d/hermes.conf
+    mode: "0644"
+  become: true
+  notify: restart journald
+
+- name: Deploy auto-update systemd service
+  ansible.builtin.template:
+    src: hermes-autoupdate.service.j2
+    dest: /etc/systemd/system/hermes-autoupdate.service
+    mode: "0644"
+  become: true
+  notify: reload systemd
+
+- name: Deploy auto-update systemd timer
+  ansible.builtin.template:
+    src: hermes-autoupdate.timer.j2
+    dest: /etc/systemd/system/hermes-autoupdate.timer
+    mode: "0644"
+  become: true
+  notify: reload systemd
+
+- name: Enable and start the auto-update timer
+  ansible.builtin.systemd:
+    name: hermes-autoupdate.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true

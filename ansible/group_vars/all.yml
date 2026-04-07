@@ -1,0 +1,36 @@
+# Non-secret defaults. All secrets loaded via lookup('env', ...) from the shell environment.
+# When running via `just`, set dotenv-load + set export ensures .env vars reach ansible.
+
+# Ollama
+ollama_host: "0.0.0.0"
+ollama_port: 11434
+
+# Podman machine
+podman_machine_name: "hermes-machine"
+podman_machine_cpus: 4
+podman_machine_memory_mb: 6144
+podman_machine_disk_gb: 40
+
+# Container image registry
+ghcr_owner: "{{ lookup('env', 'GHCR_OWNER') }}"
+
+# Allowed models (comma-separated string from env)
+allowed_models: "{{ lookup('env', 'ALLOWED_MODELS') | default('hermes3') }}"
+
+# Discord
+discord_token: "{{ lookup('env', 'DISCORD_TOKEN') }}"
+discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
+
+# Proxy tuning
+rate_limit_burst: "{{ lookup('env', 'RATE_LIMIT_BURST') | default('20') }}"
+rate_limit_per_min: "{{ lookup('env', 'RATE_LIMIT_PER_MIN') | default('5') }}"
+max_tool_rounds: "{{ lookup('env', 'MAX_TOOL_ROUNDS') | default('10') }}"
+tool_timeout_secs: "{{ lookup('env', 'TOOL_TIMEOUT_SECS') | default('120') }}"
+
+# Network
+zt_interface: "{{ lookup('env', 'ZT_INTERFACE') }}"
+zt_subnet: "{{ lookup('env', 'ZT_SUBNET') }}"
+vm_subnet: "{{ lookup('env', 'VM_SUBNET') | default('192.168.64.0/24') }}"
+# vm_bridge_iface is discovered at runtime by the firewall role via `route get`.
+# This default is used if discovery fails (bridge100 is the Podman machine default on macOS).
+vm_bridge_iface: "bridge100"

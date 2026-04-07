@@ -1,0 +1,22 @@
+---
+# Master playbook — runs all hermes-vm roles in dependency order.
+# Run via: just setup   (first time)   or   just update   (subsequent runs)
+
+# ── Host roles (run on macOS localhost) ───────────────────────────────────────
+- name: Provision macOS host
+  hosts: localhost
+  gather_facts: true
+  roles:
+    - prerequisites
+    - ollama
+    - firewall
+    - podman-machine
+
+# ── VM roles (run inside hermes-machine via SSH) ──────────────────────────────
+- name: Provision hermes-machine VM
+  hosts: hermes-machine
+  gather_facts: true
+  roles:
+    - vm-quadlets
+    - vm-volumes
+    - vm-autoupdate

@@ -1,0 +1,28 @@
+---
+- name: Find ollama binary path
+  ansible.builtin.command: which ollama
+  register: ollama_bin
+  changed_when: false
+
+- name: Deploy Ollama launchd plist
+  ansible.builtin.template:
+    src: com.hermes.ollama.plist.j2
+    dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.ollama.plist"
+    mode: "0644"
+  notify: reload ollama launchd
+
+- name: Load Ollama launchd service
+  ansible.builtin.command: >
+    launchctl load -w
+    {{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.ollama.plist
+  register: load_result
+  changed_when: load_result.rc == 0
+  failed_when: load_result.rc != 0 and "already loaded" not in load_result.stderr
+
+- name: Pull allowed Ollama models
+  ansible.builtin.command: "ollama pull {{ item }}"
+  loop: "{{ allowed_models.split(',') | map('trim') | list }}"
+  register: pull_result
+  changed_when: "'already up to date' not in pull_result.stdout"
+  environment:
+    OLLAMA_HOST: "http://{{ ollama_host }}:{{ ollama_port }}"

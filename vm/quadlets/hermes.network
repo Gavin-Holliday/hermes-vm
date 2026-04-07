@@ -1,0 +1,6 @@
+[Unit]
+Description=Hermes internal container network
+
+[Network]
+# Internal Podman bridge — containers on this network can reach each other by name.
+Driver=bridge

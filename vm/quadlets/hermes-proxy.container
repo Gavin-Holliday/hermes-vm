@@ -1,0 +1,23 @@
+[Unit]
+Description=Hermes security proxy
+After=hermes-network.service
+Wants=hermes-network.service
+
+[Container]
+Image=ghcr.io/{{ ghcr_owner }}/hermes-proxy:latest
+ContainerName=hermes-proxy
+PublishPort=8000:8000
+EnvironmentFile=/etc/containers/systemd/hermes.env
+Network=hermes.network
+HealthCmd=curl -sf http://localhost:8000/health
+HealthInterval=30s
+HealthRetries=3
+HealthStartPeriod=10s
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

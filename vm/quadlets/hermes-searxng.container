@@ -1,0 +1,22 @@
+[Unit]
+Description=Hermes SearXNG web search (internal only)
+After=hermes-network.service
+Wants=hermes-network.service
+
+[Container]
+Image=docker.io/searxng/searxng:latest
+ContainerName=hermes-searxng
+Volume=hermes-searxng-config:/etc/searxng
+Network=hermes.network
+HealthCmd=curl -sf http://localhost:8080/healthz
+HealthInterval=30s
+HealthRetries=3
+HealthStartPeriod=15s
+AutoUpdate=registry
+
+[Service]
+Restart=always
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

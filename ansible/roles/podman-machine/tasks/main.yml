@@ -1,0 +1,36 @@
+---
+- name: Check if hermes-machine already exists
+  ansible.builtin.command: podman machine inspect {{ podman_machine_name }}
+  register: machine_inspect
+  changed_when: false
+  failed_when: false
+
+- name: Create hermes-machine if it does not exist
+  ansible.builtin.command: >
+    podman machine init {{ podman_machine_name }}
+    --cpus {{ podman_machine_cpus }}
+    --memory {{ podman_machine_memory_mb }}
+    --disk-size {{ podman_machine_disk_gb }}
+    --now
+  when: machine_inspect.rc != 0
+
+- name: Start hermes-machine if not running
+  ansible.builtin.command: scripts/start-hermes-machine.sh
+  args:
+    chdir: "{{ playbook_dir }}/.."
+  register: start_result
+  changed_when: "'Starting' in start_result.stdout"
+
+- name: Deploy podman-machine launchd plist
+  ansible.builtin.template:
+    src: com.hermes.podman-machine.plist.j2
+    dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.podman-machine.plist"
+    mode: "0644"
+
+- name: Load podman-machine launchd plist
+  ansible.builtin.command: >
+    launchctl load -w
+    {{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.podman-machine.plist
+  register: pm_load
+  changed_when: pm_load.rc == 0
+  failed_when: pm_load.rc != 0 and "already loaded" not in pm_load.stderr

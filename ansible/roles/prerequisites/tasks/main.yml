@@ -1,0 +1,25 @@
+---
+# Verify all required tools are installed before any other role runs.
+# brew bundle was already run by `just setup` before Ansible is invoked.
+
+- name: Check that required binaries are on PATH
+  ansible.builtin.command: "which {{ item }}"
+  changed_when: false
+  loop:
+    - podman
+    - ollama
+    - just
+    - gh
+    - age
+    - ansible
+
+- name: Check Podman version meets minimum (4.x)
+  ansible.builtin.command: podman --version
+  register: podman_version
+  changed_when: false
+
+- name: Assert Podman 4 or higher
+  ansible.builtin.assert:
+    that: podman_version.stdout | regex_search('podman version ([0-9]+)', '\\1') | first | int >= 4
+    fail_msg: "Podman 4+ required. Got: {{ podman_version.stdout }}"
+    success_msg: "Podman version OK: {{ podman_version.stdout }}"

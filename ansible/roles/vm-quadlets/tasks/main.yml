@@ -1,0 +1,60 @@
+---
+# Render quadlet files on the Ansible controller (localhost), substituting {{ ghcr_owner }}.
+# The quadlet files use Jinja2 syntax ({{ ghcr_owner }}) — template renders them locally,
+# then copy uploads them to the VM target.
+- name: Ensure staging directory exists on controller
+  ansible.builtin.file:
+    path: /tmp/hermes-quadlets
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+
+- name: Render quadlet files on controller (substitutes ghcr_owner)
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/../vm/quadlets/{{ item }}"
+    dest: "/tmp/hermes-quadlets/{{ item }}"
+    mode: "0644"
+  delegate_to: localhost
+  loop:
+    - hermes.network
+    - hermes-proxy.container
+    - hermes-webui.container
+    - hermes-searxng.container
+    - hermes-discord.container
+
+- name: Ensure /etc/containers/systemd exists in VM
+  ansible.builtin.file:
+    path: /etc/containers/systemd
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Copy quadlet files into VM
+  ansible.builtin.copy:
+    src: "/tmp/hermes-quadlets/{{ item }}"
+    dest: "/etc/containers/systemd/{{ item }}"
+    mode: "0644"
+  become: true
+  loop:
+    - hermes.network
+    - hermes-proxy.container
+    - hermes-webui.container
+    - hermes-searxng.container
+    - hermes-discord.container
+  notify: reload systemd daemon
+
+- name: Write hermes.env into VM
+  ansible.builtin.copy:
+    content: |
+      ALLOWED_MODELS={{ allowed_models }}
+      OLLAMA_HOST=http://host.containers.internal:11434
+      RATE_LIMIT_BURST={{ rate_limit_burst }}
+      RATE_LIMIT_PER_MIN={{ rate_limit_per_min }}
+      MAX_TOOL_ROUNDS={{ max_tool_rounds }}
+      TOOL_TIMEOUT_SECS={{ tool_timeout_secs }}
+      DISCORD_TOKEN={{ discord_token }}
+      DISCORD_CHANNEL_ID={{ discord_channel_id }}
+    dest: /etc/containers/systemd/hermes.env
+    mode: "0600"
+  become: true
+  notify: reload systemd daemon
