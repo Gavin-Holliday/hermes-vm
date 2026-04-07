@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.ollama</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- ollama_bin.stdout is registered by `which ollama` in tasks/main.yml.
+             On Apple Silicon with Homebrew this is /opt/homebrew/bin/ollama, not /usr/local/bin/ollama. -->
+        <string>{{ ollama_bin.stdout | trim }}</string>
+        <string>serve</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>OLLAMA_HOST</key>
+        <string>{{ ollama_host }}:{{ ollama_port }}</string>
+        <key>HOME</key>
+        <string>{{ ansible_env.HOME }}</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- KeepAlive=true: ollama serve is a long-running daemon; restart on crash -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.hermes.ollama.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.hermes.ollama.err.log</string>
+</dict>
+</plist>
