@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.pf</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/sbin/pfctl</string>
+        <string>-f</string>
+        <string>/etc/pf.d/hermes.conf</string>
+        <string>-e</string>
+    </array>
+
+    <!-- RunAtLoad: reloads hermes pf rules on every login/reboot.
+         This ensures rules survive macOS updates that reset pf to defaults. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/com.hermes.pf.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.hermes.pf.err.log</string>
+</dict>
+</plist>
