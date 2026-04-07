@@ -41,8 +41,50 @@ def create_app(config: Config | None = None) -> FastAPI:
         if action == EndpointAction.PASSTHROUGH:
             return await _passthrough(full_path, request, cfg.ollama_host)
 
-        # GENERATION path — implemented in Task 10
-        return JSONResponse({"error": "not yet implemented"}, status_code=501)
+        # GENERATION path
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+
+        model = body.get("model", "")
+        if not model_allowed(model, cfg.allowed_models):
+            return JSONResponse({"error": f"model '{model}' not permitted"}, status_code=403)
+
+        messages = body.get("messages", [])
+        user_content = _extract_user_content(messages)
+
+        for check_fn in [check_jailbreak, check_architecture]:
+            result = check_fn(user_content)
+            if result.blocked:
+                return JSONResponse({
+                    "model": model,
+                    "message": {"role": "assistant", "content": result.refusal},
+                    "done": True,
+                })
+
+        messages = _inject_system_prompt(messages, cfg.system_prompt)
+        body["messages"] = messages
+
+        try:
+            final_messages, had_tool_calls = await run_tool_loop(messages, model, cfg)
+        except Exception as e:
+            return JSONResponse({"error": f"tool loop error: {e}"}, status_code=500)
+
+        if had_tool_calls:
+            last = final_messages[-1]
+            return JSONResponse({
+                "model": model,
+                "message": last,
+                "done": True,
+            })
+
+        # No tool calls — stream fresh response
+        body["messages"] = final_messages
+        return StreamingResponse(
+            stream_from_ollama(cfg.ollama_host, full_path, body),
+            media_type="application/x-ndjson",
+        )
 
     return app
 
