@@ -37,6 +37,7 @@ class BotConfig:
                 "qwen1":   "qwen3.5:0.8b",
                 "gpt20":   "gpt-oss:20b",
                 "coder":   "qwen3-coder:30b",
+                "josie":   "goekdenizguelmez/JOSIEFIED-Qwen3:latest",
             },
             api_port=int(os.environ.get("BOT_API_PORT", "8001")),
             enable_members_intent=(
