@@ -678,20 +678,20 @@ async def execute_discord_delete(
 
 
 async def execute_discord_gif(query: str, channel: str, config: "Config") -> str:
-    tenor_key = getattr(config, "tenor_api_key", None)
-    if not tenor_key:
-        return "TENOR_API_KEY not configured — cannot search GIFs"
+    # Use TENOR_API_KEY if set, otherwise fall back to Tenor's public demo key
+    api_key = (getattr(config, "tenor_api_key", None) or "LIVDSRZULELA")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
-                "https://tenor.googleapis.com/v2/search",
-                params={"q": query, "key": tenor_key, "limit": 1, "media_filter": "gif"},
+                "https://api.tenor.com/v1/search",
+                params={"q": query, "key": api_key, "limit": 1, "media_filter": "minimal"},
             )
             resp.raise_for_status()
             results = resp.json().get("results", [])
         if not results:
             return f"No GIF found for '{query}'"
-        gif_url = results[0]["media_formats"]["gif"]["url"]
+        gif_url = results[0]["media"][0]["gif"]["url"]
+        # Discord auto-embeds tenor GIF URLs inline
         return await execute_discord_send(channel, gif_url, config)
     except Exception as e:
         return f"Error fetching GIF: {e}"
