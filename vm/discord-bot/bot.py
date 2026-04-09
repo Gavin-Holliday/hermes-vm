@@ -106,18 +106,19 @@ async def main() -> None:
         last_edit_len = 0
 
         try:
-            async for chunk in stream_response(
-                cfg.proxy_url,
-                model_state.current,
-                history.get(msg.channel.id),
-            ):
-                full_response += chunk
-                if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
-                    display = full_response[:1990] + (
-                        "…" if len(full_response) > 1990 else ""
-                    )
-                    await reply.edit(content=display or "…")
-                    last_edit_len = len(full_response)
+            async with msg.channel.typing():
+                async for chunk in stream_response(
+                    cfg.proxy_url,
+                    model_state.current,
+                    history.get(msg.channel.id),
+                ):
+                    full_response += chunk
+                    if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
+                        display = full_response[:1990] + (
+                            "…" if len(full_response) > 1990 else ""
+                        )
+                        await reply.edit(content=display or "…")
+                        last_edit_len = len(full_response)
         except Exception as exc:
             await reply.edit(content=f"Error: {exc}")
             return
