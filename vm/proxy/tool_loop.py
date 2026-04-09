@@ -43,7 +43,10 @@ async def run_tool_loop(
 
                 tool_calls = assistant_msg.get("tool_calls")
                 if not tool_calls:
-                    return current_messages, had_tool_calls
+                    # No tool calls — drop the tentative assistant message so the
+                    # caller can make a clean streaming request without a dangling
+                    # assistant turn that would cause Ollama to return empty output.
+                    return current_messages[:-1], had_tool_calls
 
                 had_tool_calls = True
                 for call in tool_calls:
