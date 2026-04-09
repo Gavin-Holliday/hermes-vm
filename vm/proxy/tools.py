@@ -165,6 +165,51 @@ ALL_TOOL_SCHEMAS = [
         },
         ["channel", "question", "options"],
     ),
+    _schema(
+        "discord_react",
+        "Add an emoji reaction to a Discord message. Omit message_id to react to the last bot message.",
+        {
+            "emoji": {"type": "string", "description": "Emoji to react with (e.g. '👍', '🔥', '✅')"},
+            "message_id": {"type": "string", "description": "ID of the message to react to (optional)"},
+            "channel": {"type": "string", "description": "Channel name or ID (optional, defaults to main channel)"},
+        },
+        ["emoji"],
+    ),
+    _schema(
+        "discord_thread",
+        "Create a thread from a Discord message. Omit message_id to thread from the last bot message.",
+        {
+            "name": {"type": "string", "description": "Thread name (max 100 chars)"},
+            "message_id": {"type": "string", "description": "ID of the message to thread from (optional)"},
+        },
+        ["name"],
+    ),
+    _schema(
+        "discord_pin",
+        "Pin a Discord message. Omit message_id to pin the last bot message.",
+        {
+            "message_id": {"type": "string", "description": "ID of the message to pin (optional)"},
+        },
+        [],
+    ),
+    _schema(
+        "discord_delete",
+        "Delete recent bot messages. Omit message_id to delete by count.",
+        {
+            "message_id": {"type": "string", "description": "ID of specific message to delete (optional)"},
+            "count": {"type": "integer", "description": "Number of recent bot messages to delete (default 1)"},
+        },
+        [],
+    ),
+    _schema(
+        "discord_gif",
+        "Search for a GIF and post it to a Discord channel.",
+        {
+            "query": {"type": "string", "description": "Search query for the GIF"},
+            "channel": {"type": "string", "description": "Channel name or ID"},
+        },
+        ["query", "channel"],
+    ),
 ]
 
 # Backwards compat alias used in tests / old imports
@@ -579,6 +624,79 @@ async def execute_discord_poll(
         return f"Error creating poll: {e}"
 
 
+async def execute_discord_react(
+    emoji: str, message_id: str | None, channel: str | None, config: "Config"
+) -> str:
+    body: dict = {"emoji": emoji}
+    if message_id:
+        body["message_id"] = int(message_id)
+    if channel:
+        key = "channel_id" if channel.isdigit() else "channel_name"
+        body[key] = int(channel) if channel.isdigit() else channel
+    try:
+        await _discord_api("POST", "/react", config, body)
+        return f"Reacted with {emoji}"
+    except Exception as e:
+        return f"Error adding reaction: {e}"
+
+
+async def execute_discord_thread(
+    name: str, message_id: str | None, config: "Config"
+) -> str:
+    body: dict = {"name": name[:100]}
+    if message_id:
+        body["message_id"] = int(message_id)
+    try:
+        data = await _discord_api("POST", "/thread", config, body)
+        return f"Thread created: {data.get('thread_name', name)}"
+    except Exception as e:
+        return f"Error creating thread: {e}"
+
+
+async def execute_discord_pin(message_id: str | None, config: "Config") -> str:
+    body: dict = {}
+    if message_id:
+        body["message_id"] = int(message_id)
+    try:
+        await _discord_api("POST", "/pin", config, body)
+        return "Message pinned"
+    except Exception as e:
+        return f"Error pinning message: {e}"
+
+
+async def execute_discord_delete(
+    message_id: str | None, count: int, config: "Config"
+) -> str:
+    body: dict = {"count": count}
+    if message_id:
+        body["message_id"] = int(message_id)
+    try:
+        data = await _discord_api("POST", "/delete", config, body)
+        return f"Deleted {data.get('deleted', 0)} message(s)"
+    except Exception as e:
+        return f"Error deleting message(s): {e}"
+
+
+async def execute_discord_gif(query: str, channel: str, config: "Config") -> str:
+    tenor_key = getattr(config, "tenor_api_key", None)
+    if not tenor_key:
+        return "TENOR_API_KEY not configured — cannot search GIFs"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://tenor.googleapis.com/v2/search",
+                params={"q": query, "key": tenor_key, "limit": 1, "media_filter": "gif"},
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+        if not results:
+            return f"No GIF found for '{query}'"
+        gif_url = results[0]["media_formats"]["gif"]["url"]
+        return await execute_discord_send(channel, gif_url, config)
+    except Exception as e:
+        return f"Error fetching GIF: {e}"
+
+
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
 
@@ -626,4 +744,18 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
             args.get("duration_hours", 24),
             config,
         )
+    if name == "discord_react":
+        return await execute_discord_react(
+            args["emoji"], args.get("message_id"), args.get("channel"), config
+        )
+    if name == "discord_thread":
+        return await execute_discord_thread(args["name"], args.get("message_id"), config)
+    if name == "discord_pin":
+        return await execute_discord_pin(args.get("message_id"), config)
+    if name == "discord_delete":
+        return await execute_discord_delete(
+            args.get("message_id"), args.get("count", 1), config
+        )
+    if name == "discord_gif":
+        return await execute_discord_gif(args["query"], args["channel"], config)
     return f"Unknown tool: {name}"

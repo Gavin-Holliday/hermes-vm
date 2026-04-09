@@ -91,11 +91,75 @@ def make_handlers(
         if channel is None:
             return web.json_response({"error": "channel not found"}, status=404)
         try:
-            msg = await channel.fetch_message(int(data["message_id"]))
+            if "message_id" in data:
+                msg = await channel.fetch_message(int(data["message_id"]))
+            else:
+                msg = tracker.last(cfg.channel_id)
+            if msg is None:
+                return web.json_response({"error": "no message found"}, status=404)
             await msg.add_reaction(data.get("emoji", "✅"))
             return web.json_response({"ok": True})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def create_thread(request: web.Request) -> web.Response:
+        data = await request.json()
+        name = str(data.get("name", "Thread"))[:100]
+        try:
+            if "message_id" in data:
+                channel = await _resolve_channel(bot, cfg, data)
+                if channel is None:
+                    return web.json_response({"error": "channel not found"}, status=404)
+                msg = await channel.fetch_message(int(data["message_id"]))
+            else:
+                msg = tracker.last(cfg.channel_id)
+            if msg is None:
+                return web.json_response({"error": "no message to thread from"}, status=404)
+            thread = await msg.create_thread(name=name)
+            return web.json_response({"ok": True, "thread_name": thread.name, "thread_id": thread.id})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def pin_message(request: web.Request) -> web.Response:
+        data = await request.json()
+        try:
+            if "message_id" in data:
+                channel = await _resolve_channel(bot, cfg, data)
+                if channel is None:
+                    return web.json_response({"error": "channel not found"}, status=404)
+                msg = await channel.fetch_message(int(data["message_id"]))
+            else:
+                msg = tracker.last(cfg.channel_id)
+            if msg is None:
+                return web.json_response({"error": "no message to pin"}, status=404)
+            await msg.pin()
+            return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def delete_messages(request: web.Request) -> web.Response:
+        data = await request.json()
+        deleted = 0
+        try:
+            if "message_id" in data:
+                channel = await _resolve_channel(bot, cfg, data)
+                if channel is None:
+                    return web.json_response({"error": "channel not found"}, status=404)
+                msg = await channel.fetch_message(int(data["message_id"]))
+                await msg.delete()
+                deleted = 1
+            else:
+                count = int(data.get("count", 1))
+                msgs = tracker.pop_recent(cfg.channel_id, count)
+                for m in msgs:
+                    try:
+                        await m.delete()
+                        deleted += 1
+                    except discord.NotFound:
+                        pass
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"ok": True, "deleted": deleted})
 
     return {
         "GET  /health":   health,
@@ -105,6 +169,9 @@ def make_handlers(
         "GET  /members":  list_members,
         "POST /poll":     create_poll,
         "POST /react":    add_reaction,
+        "POST /thread":   create_thread,
+        "POST /pin":      pin_message,
+        "POST /delete":   delete_messages,
     }
 
 

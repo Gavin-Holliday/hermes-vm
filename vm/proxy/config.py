@@ -28,6 +28,7 @@ class Config:
     data_path: str = None
     vision_model: str = None
     discord_bot_api_url: str = None
+    tenor_api_key: str = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -59,6 +60,8 @@ class Config:
             self.discord_bot_api_url = os.getenv(
                 "DISCORD_BOT_API_URL", "http://hermes-discord:8001"
             )
+        if self.tenor_api_key is None:
+            self.tenor_api_key = os.getenv("TENOR_API_KEY", "")
 
 
 @lru_cache

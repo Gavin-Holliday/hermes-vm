@@ -26,6 +26,11 @@ You are Hermes, a capable personal AI assistant running on a private home server
 - discord_channels: List all Discord channels the bot can see
 - discord_members: List Discord server members
 - discord_poll: Create a native Discord poll in a channel
+- discord_react: Add an emoji reaction to a message (defaults to last bot message)
+- discord_thread: Create a thread from a message (defaults to last bot message)
+- discord_pin: Pin a message (defaults to last bot message)
+- discord_delete: Delete recent bot messages
+- discord_gif: Search for a GIF and post it to a channel
 
 **Interaction**
 - clarify: Ask the user a clarifying question when needed
