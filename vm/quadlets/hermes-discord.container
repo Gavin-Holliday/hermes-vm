@@ -8,6 +8,7 @@ Image=ghcr.io/{{ ghcr_owner }}/hermes-discord:latest
 ContainerName=hermes-discord
 EnvironmentFile=/etc/containers/systemd/hermes.env
 Environment=PROXY_URL=http://hermes-proxy:8000
+Environment=PYTHONUNBUFFERED=1
 Network=hermes.network
 HealthCmd=["python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
 HealthInterval=30s

@@ -19,6 +19,21 @@ def make_handlers(
     async def health(request: web.Request) -> web.Response:
         return web.json_response({"status": "ok"})
 
+    async def debug_info(request: web.Request) -> web.Response:
+        return web.json_response({
+            "watching_channel_id": cfg.channel_id,
+            "guilds": [
+                {
+                    "name": g.name,
+                    "channels": [
+                        {"id": ch.id, "name": ch.name}
+                        for ch in g.text_channels
+                    ],
+                }
+                for g in bot.guilds
+            ],
+        })
+
     async def send_message(request: web.Request) -> web.Response:
         data = await request.json()
         channel = await _resolve_channel(bot, cfg, data)
@@ -84,6 +99,7 @@ def make_handlers(
 
     return {
         "GET  /health":   health,
+        "GET  /debug":    debug_info,
         "POST /send":     send_message,
         "GET  /channels": list_channels,
         "GET  /members":  list_members,

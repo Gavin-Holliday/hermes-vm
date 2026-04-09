@@ -4,6 +4,8 @@ on_message lives here (not in a Cog) to ensure reliable dispatch.
 Commands live in Cogs.
 """
 import asyncio
+import logging
+import sys
 
 import discord
 from discord.ext import commands
@@ -20,6 +22,14 @@ from cogs.moderation import ModerationCog
 from cogs.server import ServerCog
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
+log = logging.getLogger("hermes.bot")
 
 EDIT_EVERY_CHARS = 80
 
@@ -58,15 +68,28 @@ async def main() -> None:
 
     @bot.event
     async def on_ready() -> None:
-        print(f"Hermes connected as {bot.user} (id={bot.user.id})")
+        log.info("Hermes connected as %s (id=%s)", bot.user, bot.user.id)
         for guild in bot.guilds:
-            print(f"  Guild: {guild.name} — {len(guild.channels)} channels")
+            log.info("  Guild: %s — %d channels", guild.name, len(guild.channels))
+        log.info("Watching channel_id=%d", cfg.channel_id)
 
     @bot.event
     async def on_message(msg: discord.Message) -> None:
+        log.info(
+            "on_message: author=%s bot=%s channel=%d content=%r",
+            msg.author,
+            msg.author.bot,
+            msg.channel.id,
+            msg.content[:80] if msg.content else "",
+        )
         if msg.author.bot:
             return
         if msg.channel.id != cfg.channel_id:
+            log.info(
+                "Ignoring message: channel %d != expected %d",
+                msg.channel.id,
+                cfg.channel_id,
+            )
             return
 
         # Let command Cogs handle ! prefixed messages
