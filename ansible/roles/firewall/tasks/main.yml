@@ -20,10 +20,10 @@
   notify: reload pf rules
 
 - name: Load pf rules now
-  ansible.builtin.command: pfctl -f /etc/pf.d/hermes.conf -e
+  # -f loads the ruleset; omit -e because pf is always already enabled on macOS
+  ansible.builtin.command: pfctl -f /etc/pf.d/hermes.conf
   become: true
   changed_when: true
-  ignore_errors: true
 
 - name: Deploy pf boot launchd plist
   ansible.builtin.template:
