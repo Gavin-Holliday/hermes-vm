@@ -2,7 +2,7 @@ import asyncio
 import json
 import httpx
 from proxy.config import Config
-from proxy.tools import SEARXNG_TOOL_SCHEMA, dispatch_tool
+from proxy.tools import ALL_TOOL_SCHEMAS, dispatch_tool
 
 
 async def run_tool_loop(
@@ -32,7 +32,7 @@ async def run_tool_loop(
                     json={
                         "model": model,
                         "messages": current_messages,
-                        "tools": [SEARXNG_TOOL_SCHEMA],
+                        "tools": ALL_TOOL_SCHEMAS,
                         "stream": False,
                     },
                 )
@@ -43,10 +43,14 @@ async def run_tool_loop(
 
                 tool_calls = assistant_msg.get("tool_calls")
                 if not tool_calls:
-                    # No tool calls — drop the tentative assistant message so the
-                    # caller can make a clean streaming request without a dangling
-                    # assistant turn that would cause Ollama to return empty output.
-                    return current_messages[:-1], had_tool_calls
+                    if had_tool_calls:
+                        # Tool calls were made earlier; this is the final answer — keep it.
+                        return current_messages, had_tool_calls
+                    else:
+                        # Pure probe with no tool calls — drop the assistant message so
+                        # the caller can make a clean streaming request without a dangling
+                        # assistant turn that would cause Ollama to return empty output.
+                        return current_messages[:-1], had_tool_calls
 
                 had_tool_calls = True
                 for call in tool_calls:
@@ -54,7 +58,7 @@ async def run_tool_loop(
                     raw_args = call["function"]["arguments"]
                     # Ollama returns arguments as a JSON-encoded string, not a dict
                     fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-                    result = await dispatch_tool(fn_name, fn_args, config.searxng_url)
+                    result = await dispatch_tool(fn_name, fn_args, config)
                     current_messages.append({"role": "tool", "content": result})
 
             raise RuntimeError(

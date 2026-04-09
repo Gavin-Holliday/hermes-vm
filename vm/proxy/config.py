@@ -24,6 +24,9 @@ class Config:
     max_tool_rounds: int = None
     tool_timeout_secs: int = None
     system_prompt: str = None
+    workspace_path: str = None
+    data_path: str = None
+    vision_model: str = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -45,6 +48,12 @@ class Config:
             self.tool_timeout_secs = int(os.getenv("TOOL_TIMEOUT_SECS", "120"))
         if self.system_prompt is None:
             self.system_prompt = _load_system_prompt()
+        if self.workspace_path is None:
+            self.workspace_path = os.getenv("WORKSPACE_PATH", "/app/workspace")
+        if self.data_path is None:
+            self.data_path = os.getenv("DATA_PATH", "/app/data")
+        if self.vision_model is None:
+            self.vision_model = os.getenv("VISION_MODEL", "gemma4:e4b")
 
 
 @lru_cache

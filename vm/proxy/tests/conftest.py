@@ -3,7 +3,7 @@ from proxy.config import Config
 
 
 @pytest.fixture
-def cfg() -> Config:
+def cfg(tmp_path) -> Config:
     return Config(
         ollama_host="http://mock-ollama:11434",
         allowed_models=["hermes3", "gemma4:27b"],
@@ -13,4 +13,7 @@ def cfg() -> Config:
         max_tool_rounds=10,
         tool_timeout_secs=30,
         system_prompt="You are Hermes, a helpful assistant.",
+        workspace_path=str(tmp_path / "workspace"),
+        data_path=str(tmp_path / "data"),
+        vision_model="gemma4:e4b",
     )

@@ -31,7 +31,9 @@ async def test_loop_returns_plain_response_with_no_tool_calls(cfg):
     final_messages, had_tool_calls = await run_tool_loop(messages, "hermes3", cfg)
 
     assert had_tool_calls is False
-    assert final_messages[-1]["content"] == "Paris is the capital of France."
+    # When no tool calls, the probe assistant message is dropped so the caller
+    # can make a clean streaming request. Last message should be the user message.
+    assert final_messages[-1]["role"] == "user"
 
 
 @pytest.mark.asyncio
