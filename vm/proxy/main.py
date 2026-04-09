@@ -1,7 +1,12 @@
+import logging
+import traceback
+
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from proxy.config import Config, get_config
+
+log = logging.getLogger("hermes.proxy")
 from proxy.whitelist import endpoint_action, model_allowed, EndpointAction
 from proxy.filters import check_jailbreak, check_architecture
 from proxy.rate_limit import TokenBucket
@@ -69,6 +74,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         try:
             final_messages, had_tool_calls = await run_tool_loop(messages, model, cfg)
         except Exception as e:
+            log.error("tool loop error: %s\n%s", e, traceback.format_exc())
             return JSONResponse({"error": f"tool loop error: {e}"}, status_code=500)
 
         if had_tool_calls:
