@@ -9,7 +9,10 @@ ContainerName=hermes-discord
 EnvironmentFile=/etc/containers/systemd/hermes.env
 Environment=PROXY_URL=http://hermes-proxy:8000
 Network=hermes.network
-# NOTE: No HealthCmd — the Discord bot has no HTTP endpoint to health-check.
+HealthCmd=["python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+HealthInterval=30s
+HealthRetries=3
+HealthStartPeriod=15s
 AutoUpdate=registry
 
 [Service]

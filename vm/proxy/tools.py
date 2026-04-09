@@ -129,6 +129,42 @@ ALL_TOOL_SCHEMAS = [
         {"question": {"type": "string", "description": "The clarifying question to ask the user"}},
         ["question"],
     ),
+    _schema(
+        "discord_send",
+        "Send a message to a Discord channel by name or ID.",
+        {
+            "channel": {"type": "string", "description": "Channel name or ID"},
+            "content": {"type": "string", "description": "Message content (max 2000 chars)"},
+        },
+        ["channel", "content"],
+    ),
+    _schema(
+        "discord_channels",
+        "List all Discord channels the bot can see.",
+        {},
+        [],
+    ),
+    _schema(
+        "discord_members",
+        "List Discord server members (requires members intent to be enabled).",
+        {},
+        [],
+    ),
+    _schema(
+        "discord_poll",
+        "Create a native Discord poll in a channel.",
+        {
+            "channel": {"type": "string", "description": "Channel name or ID"},
+            "question": {"type": "string", "description": "Poll question"},
+            "options": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Poll answer options (2–10 items)",
+            },
+            "duration_hours": {"type": "integer", "description": "Poll duration in hours (default 24)"},
+        },
+        ["channel", "question", "options"],
+    ),
 ]
 
 # Backwards compat alias used in tests / old imports
@@ -473,6 +509,76 @@ async def execute_clarify(question: str) -> str:
     return f"[CLARIFICATION NEEDED]: {question}"
 
 
+# ── Discord bot API tools ──────────────────────────────────────────────────────
+
+
+async def _discord_api(
+    method: str, path: str, config: "Config", body: dict | None = None
+) -> dict:
+    url = f"{config.discord_bot_api_url}{path}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        if method == "GET":
+            resp = await client.get(url)
+        else:
+            resp = await client.post(url, json=body or {})
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def execute_discord_send(channel: str, content: str, config: "Config") -> str:
+    key = "channel_id" if channel.isdigit() else "channel_name"
+    try:
+        data = await _discord_api(
+            "POST", "/send", config,
+            {key: int(channel) if channel.isdigit() else channel, "content": content},
+        )
+        return f"Message sent (id={data.get('message_id')})"
+    except Exception as e:
+        return f"Error sending Discord message: {e}"
+
+
+async def execute_discord_channels(config: "Config") -> str:
+    try:
+        data = await _discord_api("GET", "/channels", config)
+        channels = data.get("channels", [])
+        if not channels:
+            return "No channels found."
+        lines = [f"#{c['name']} ({c['type']}) — id:{c['id']}" for c in channels]
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing channels: {e}"
+
+
+async def execute_discord_members(config: "Config") -> str:
+    try:
+        data = await _discord_api("GET", "/members", config)
+        members = [m for m in data.get("members", []) if not m["bot"]]
+        if not members:
+            return "No members found (members intent may not be enabled)."
+        return "\n".join(f"{m['display_name']} (@{m['name']})" for m in members[:50])
+    except Exception as e:
+        return f"Error listing members: {e}"
+
+
+async def execute_discord_poll(
+    channel: str, question: str, options: list[str], duration_hours: int, config: "Config"
+) -> str:
+    key = "channel_id" if channel.isdigit() else "channel_name"
+    try:
+        data = await _discord_api(
+            "POST", "/poll", config,
+            {
+                key: int(channel) if channel.isdigit() else channel,
+                "question": question,
+                "options": options,
+                "duration_hours": duration_hours,
+            },
+        )
+        return f"Poll created (id={data.get('message_id')})"
+    except Exception as e:
+        return f"Error creating poll: {e}"
+
+
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
 
@@ -506,4 +612,18 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "clarify":
         return await execute_clarify(args["question"])
+    if name == "discord_send":
+        return await execute_discord_send(args["channel"], args["content"], config)
+    if name == "discord_channels":
+        return await execute_discord_channels(config)
+    if name == "discord_members":
+        return await execute_discord_members(config)
+    if name == "discord_poll":
+        return await execute_discord_poll(
+            args["channel"],
+            args["question"],
+            args["options"],
+            args.get("duration_hours", 24),
+            config,
+        )
     return f"Unknown tool: {name}"

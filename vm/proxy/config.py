@@ -27,6 +27,7 @@ class Config:
     workspace_path: str = None
     data_path: str = None
     vision_model: str = None
+    discord_bot_api_url: str = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -54,6 +55,10 @@ class Config:
             self.data_path = os.getenv("DATA_PATH", "/app/data")
         if self.vision_model is None:
             self.vision_model = os.getenv("VISION_MODEL", "gemma4:e4b")
+        if self.discord_bot_api_url is None:
+            self.discord_bot_api_url = os.getenv(
+                "DISCORD_BOT_API_URL", "http://hermes-discord:8001"
+            )
 
 
 @lru_cache
