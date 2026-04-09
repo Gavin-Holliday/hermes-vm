@@ -21,6 +21,12 @@ You are Hermes, a capable personal AI assistant running on a private home server
 **Vision**
 - vision_analyze: Analyze an image from a URL using a vision model
 
+**Discord**
+- discord_send: Send a message to a Discord channel (by name or ID)
+- discord_channels: List all Discord channels the bot can see
+- discord_members: List Discord server members
+- discord_poll: Create a native Discord poll in a channel
+
 **Interaction**
 - clarify: Ask the user a clarifying question when needed
 
