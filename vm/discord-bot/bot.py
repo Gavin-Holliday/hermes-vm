@@ -14,6 +14,18 @@ PROXY_URL = os.environ.get("PROXY_URL", "http://hermes-proxy:8000")
 DEFAULT_MODEL = os.environ.get("MODEL", "hermes3")
 ALLOWED_MODELS = [m.strip() for m in os.environ.get("ALLOWED_MODELS", DEFAULT_MODEL).split(",")]
 
+# Short aliases → full model names. Add entries here as needed.
+MODEL_ALIASES: dict[str, str] = {
+    "heretic":  "igorls/gemma-4-E4B-it-heretic-GGUF:latest",
+    "hermes":   "hermes3",
+    "gemma26":  "gemma4:26b",
+    "gemma4b":  "gemma4:e4b",
+    "qwen9":    "qwen3.5:9b",
+    "qwen1":    "qwen3.5:0.8b",
+    "gpt20":    "gpt-oss:20b",
+    "coder":    "qwen3-coder:30b",
+}
+
 # Edit the in-progress reply at most every EDIT_INTERVAL characters of new content.
 # This prevents Discord API rate limits (5 edits / 5 seconds per message).
 EDIT_EVERY_CHARS = 80
@@ -60,20 +72,31 @@ async def switch_model(ctx: commands.Context, model_name: str = None) -> None:
         model_list = "\n".join(
             f"{'→' if m == current_model else '  '} `{m}`" for m in ALLOWED_MODELS
         )
-        await ctx.send(f"**Current model:** `{current_model}`\n\n**Available:**\n{model_list}")
+        alias_list = "\n".join(f"  `{k}` → `{v}`" for k, v in MODEL_ALIASES.items())
+        await ctx.send(
+            f"**Current model:** `{current_model}`\n\n"
+            f"**Available:**\n{model_list}\n\n"
+            f"**Aliases:**\n{alias_list}"
+        )
         return
 
-    if model_name not in ALLOWED_MODELS:
+    # Resolve alias to full name if applicable
+    resolved = MODEL_ALIASES.get(model_name, model_name)
+
+    if resolved not in ALLOWED_MODELS:
         await ctx.send(
-            f"❌ `{model_name}` is not in the allowed list.\n"
-            f"Use `!model` to see available models."
+            f"❌ `{model_name}` is not recognised.\n"
+            f"Use `!model` to see available models and aliases."
         )
         return
 
     old = current_model
-    current_model = model_name
+    current_model = resolved
     history.clear(ctx.channel.id)
-    await ctx.send(f"Switched from `{old}` → `{current_model}`. History cleared.")
+    msg = f"Switched from `{old}` → `{current_model}`. History cleared."
+    if resolved != model_name:
+        msg += f" (alias `{model_name}`)"
+    await ctx.send(msg)
 
 
 @bot.event
