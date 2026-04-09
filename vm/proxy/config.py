@@ -29,6 +29,7 @@ class Config:
     vision_model: str = None
     discord_bot_api_url: str = None
     tenor_api_key: str = None
+    github_token: str = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -62,6 +63,8 @@ class Config:
             )
         if self.tenor_api_key is None:
             self.tenor_api_key = os.getenv("TENOR_API_KEY", "")
+        if self.github_token is None:
+            self.github_token = os.getenv("GITHUB_TOKEN", "")
 
 
 @lru_cache

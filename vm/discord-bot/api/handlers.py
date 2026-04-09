@@ -186,6 +186,75 @@ def make_handlers(
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def send_embed(request: web.Request) -> web.Response:
+        import asyncio
+        data = await request.json()
+        channel = await _resolve_channel(bot, cfg, data)
+        if channel is None:
+            return web.json_response({"error": "channel not found"}, status=404)
+        try:
+            # Parse color: accept "#RRGGBB" hex or integer; default to Discord blurple
+            color_raw = data.get("color")
+            if color_raw:
+                if isinstance(color_raw, str) and color_raw.startswith("#"):
+                    color_int = int(color_raw.lstrip("#"), 16)
+                elif isinstance(color_raw, int):
+                    color_int = color_raw
+                else:
+                    try:
+                        color_int = int(str(color_raw).lstrip("#"), 16)
+                    except Exception:
+                        color_int = 0x5865F2
+            else:
+                color_int = 0x5865F2
+
+            embed = discord.Embed(
+                title=str(data.get("title", ""))[:256],
+                description=str(data.get("description", ""))[:4096],
+                color=color_int,
+            )
+
+            for field in data.get("fields") or []:
+                embed.add_field(
+                    name=str(field.get("name", ""))[:256],
+                    value=str(field.get("value", ""))[:1024],
+                    inline=bool(field.get("inline", False)),
+                )
+
+            thumbnail = data.get("thumbnail")
+            if thumbnail:
+                embed.set_thumbnail(url=str(thumbnail))
+
+            msg = await channel.send(embed=embed)
+            tracker.track(msg)
+            return web.json_response({"ok": True, "message_id": msg.id})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def schedule_remind(request: web.Request) -> web.Response:
+        import asyncio
+        data = await request.json()
+        message = str(data.get("message", ""))
+        delay_seconds = int(data.get("delay_seconds", 60))
+
+        # Resolve channel now; fall back to default channel
+        channel = await _resolve_channel(bot, cfg, data)
+        if channel is None:
+            channel = bot.get_channel(cfg.channel_id)
+        if channel is None:
+            return web.json_response({"error": "channel not found"}, status=404)
+
+        async def _send_later():
+            await asyncio.sleep(delay_seconds)
+            try:
+                msg = await channel.send(message[:2000])
+                tracker.track(msg)
+            except Exception:
+                pass
+
+        asyncio.ensure_future(_send_later())
+        return web.json_response({"ok": True, "delay_seconds": delay_seconds})
+
     async def delete_messages(request: web.Request) -> web.Response:
         data = await request.json()
         deleted = 0
@@ -223,6 +292,8 @@ def make_handlers(
         "POST /delete":    delete_messages,
         "GET  /history":   channel_history,
         "GET  /message":   fetch_message,
+        "POST /embed":     send_embed,
+        "POST /remind":    schedule_remind,
     }
 
 

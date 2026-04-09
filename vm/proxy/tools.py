@@ -2,9 +2,12 @@ import asyncio
 import base64
 import json
 import re
+import xml.etree.ElementTree as ET
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote as url_quote
 
 import httpx
 
@@ -229,6 +232,115 @@ ALL_TOOL_SCHEMAS = [
             "channel": {"type": "string", "description": "Channel name or ID (defaults to main channel)"},
         },
         ["message_id"],
+    ),
+    _schema(
+        "weather",
+        "Get the current weather and today's forecast for a location using the free Open-Meteo API.",
+        {
+            "location": {"type": "string", "description": "City name or location (e.g. 'London', 'New York')"},
+        },
+        ["location"],
+    ),
+    _schema(
+        "news",
+        "Fetch top 5 news headlines from BBC News RSS. Optionally filter by topic (e.g. 'technology', 'science', 'health', 'world', 'business').",
+        {
+            "topic": {"type": "string", "description": "Optional topic category (e.g. 'technology', 'science', 'health', 'world', 'business')"},
+        },
+        [],
+    ),
+    _schema(
+        "qr_code",
+        "Generate a QR code for any text or URL and post it to a Discord channel as an embedded image.",
+        {
+            "text": {"type": "string", "description": "The text or URL to encode in the QR code"},
+            "channel": {"type": "string", "description": "Channel name or ID to post the QR code to"},
+        },
+        ["text", "channel"],
+    ),
+    _schema(
+        "discord_embed",
+        "Send a rich Discord embed message to a channel with a title, description, optional color, fields, and thumbnail.",
+        {
+            "channel": {"type": "string", "description": "Channel name or ID"},
+            "title": {"type": "string", "description": "Embed title"},
+            "description": {"type": "string", "description": "Embed description/body text"},
+            "color": {"type": "string", "description": "Embed color as hex string like '#5865F2' (default: Discord blurple)"},
+            "fields": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "value": {"type": "string"},
+                        "inline": {"type": "boolean"},
+                    },
+                    "required": ["name", "value"],
+                },
+                "description": "Optional list of embed fields with name, value, and optional inline flag",
+            },
+            "thumbnail": {"type": "string", "description": "Optional URL for embed thumbnail image"},
+        },
+        ["channel", "title", "description"],
+    ),
+    _schema(
+        "remind",
+        "Set a reminder that sends a message to a channel after a delay. Supports 'in X minutes/hours/days', ISO datetime strings.",
+        {
+            "message": {"type": "string", "description": "Reminder message to send"},
+            "when": {"type": "string", "description": "When to send: 'in 30 minutes', 'in 2 hours', 'in 1 day', or ISO datetime like '2024-03-15T14:00:00'"},
+            "channel": {"type": "string", "description": "Channel name or ID to send the reminder to (optional, defaults to main channel)"},
+        },
+        ["message", "when"],
+    ),
+    _schema(
+        "ollama_models",
+        "List all models currently available on the Ollama server with their sizes.",
+        {},
+        [],
+    ),
+    _schema(
+        "github_list_issues",
+        "List GitHub issues for a repository. Requires GITHUB_TOKEN to be set.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format (e.g. 'octocat/Hello-World')"},
+            "state": {"type": "string", "description": "Issue state: 'open', 'closed', or 'all' (default: 'open')"},
+        },
+        ["repo"],
+    ),
+    _schema(
+        "github_get_issue",
+        "Get details of a specific GitHub issue. Requires GITHUB_TOKEN to be set.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "number": {"type": "integer", "description": "Issue number"},
+        },
+        ["repo", "number"],
+    ),
+    _schema(
+        "github_create_issue",
+        "Create a new GitHub issue in a repository. Requires GITHUB_TOKEN to be set.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "title": {"type": "string", "description": "Issue title"},
+            "body": {"type": "string", "description": "Issue body/description (optional)"},
+            "labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of label names to apply",
+            },
+        },
+        ["repo", "title"],
+    ),
+    _schema(
+        "github_comment_issue",
+        "Add a comment to a GitHub issue. Requires GITHUB_TOKEN to be set.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "number": {"type": "integer", "description": "Issue number"},
+            "body": {"type": "string", "description": "Comment text"},
+        },
+        ["repo", "number", "body"],
     ),
 ]
 
@@ -756,6 +868,352 @@ async def execute_discord_gif(query: str, channel: str, config: "Config") -> str
         return f"Error fetching GIF: {e}"
 
 
+# ── WMO weather code descriptions ─────────────────────────────────────────────
+
+_WMO_CODES: dict[int, str] = {
+    0: "Clear sky",
+    1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+    45: "Fog", 48: "Depositing rime fog",
+    51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+    61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain",
+    66: "Light freezing rain", 67: "Heavy freezing rain",
+    71: "Slight snow", 73: "Moderate snow", 75: "Heavy snow",
+    77: "Snow grains",
+    80: "Slight showers", 81: "Moderate showers", 82: "Violent showers",
+    85: "Slight snow showers", 86: "Heavy snow showers",
+    95: "Thunderstorm", 96: "Thunderstorm with slight hail", 99: "Thunderstorm with heavy hail",
+}
+
+
+def _wmo_description(code: int) -> str:
+    return _WMO_CODES.get(code, f"Unknown (WMO {code})")
+
+
+# ── New tool implementations ───────────────────────────────────────────────────
+
+
+async def execute_weather(location: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            geo_resp = await client.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": location, "count": 1},
+            )
+            geo_resp.raise_for_status()
+            geo_data = geo_resp.json()
+
+        results = geo_data.get("results")
+        if not results:
+            return f"Location not found: {location}"
+
+        place = results[0]
+        lat = place["latitude"]
+        lon = place["longitude"]
+        place_name = place.get("name", location)
+        country = place.get("country", "")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            wx_resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current_weather": "true",
+                    "hourly": "temperature_2m,weathercode,precipitation_probability",
+                    "timezone": "auto",
+                    "forecast_days": 1,
+                },
+            )
+            wx_resp.raise_for_status()
+            wx = wx_resp.json()
+
+        current = wx.get("current_weather", {})
+        temp = current.get("temperature", "?")
+        windspeed = current.get("windspeed", "?")
+        wmo = int(current.get("weathercode", 0))
+        condition = _wmo_description(wmo)
+
+        hourly = wx.get("hourly", {})
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        precip_probs = hourly.get("precipitation_probability", [])
+        wcodes = hourly.get("weathercode", [])
+
+        if temps:
+            max_t = max(temps)
+            min_t = min(temps)
+        else:
+            max_t = min_t = "?"
+
+        max_precip = max(precip_probs) if precip_probs else 0
+
+        lines = [
+            f"**Weather for {place_name}, {country}**",
+            f"Current: {temp}°C — {condition}",
+            f"Wind: {windspeed} km/h",
+            f"Today's range: {min_t}°C – {max_t}°C",
+            f"Max precipitation chance: {max_precip}%",
+        ]
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching weather: {e}"
+
+
+async def execute_news(topic: str | None = None) -> str:
+    if topic:
+        url = f"http://feeds.bbci.co.uk/news/{topic}/rss.xml"
+    else:
+        url = "http://feeds.bbci.co.uk/news/rss.xml"
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; Hermes/1.0)"})
+            resp.raise_for_status()
+
+        root = ET.fromstring(resp.text)
+        ns = {"media": "http://search.yahoo.com/mrss/"}
+        channel_el = root.find("channel")
+        if channel_el is None:
+            return "Could not parse RSS feed."
+
+        items = channel_el.findall("item")[:5]
+        if not items:
+            return "No news items found."
+
+        lines = [f"**BBC News{' — ' + topic.title() if topic else ''}** (top {len(items)} headlines)\n"]
+        for i, item in enumerate(items, 1):
+            title = (item.findtext("title") or "").strip()
+            desc = (item.findtext("description") or "").strip()
+            desc = re.sub(r"<[^>]+>", "", desc)[:200]
+            lines.append(f"{i}. **{title}**\n   {desc}")
+
+        return "\n\n".join(lines)
+    except Exception as e:
+        return f"Error fetching news: {e}"
+
+
+async def execute_qr_code(text: str, channel: str, config: "Config") -> str:
+    try:
+        encoded = url_quote(text)
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?data={encoded}&size=300x300"
+        return await execute_discord_send(channel, qr_url, config)
+    except Exception as e:
+        return f"Error generating QR code: {e}"
+
+
+async def execute_discord_embed(
+    channel: str,
+    title: str,
+    description: str,
+    color: str | None,
+    fields: list[dict] | None,
+    thumbnail: str | None,
+    config: "Config",
+) -> str:
+    key = "channel_id" if channel.isdigit() else "channel_name"
+    body: dict = {
+        key: int(channel) if channel.isdigit() else channel,
+        "title": title,
+        "description": description,
+    }
+    if color:
+        body["color"] = color
+    if fields:
+        body["fields"] = fields
+    if thumbnail:
+        body["thumbnail"] = thumbnail
+    try:
+        data = await _discord_api("POST", "/embed", config, body)
+        return f"Embed sent (id={data.get('message_id')})"
+    except Exception as e:
+        return f"Error sending embed: {e}"
+
+
+def _parse_when(when: str) -> int:
+    """Parse a 'when' string and return delay in seconds. Defaults to 60 on failure."""
+    when_lower = when.strip().lower()
+    m = re.match(r"in\s+(\d+(?:\.\d+)?)\s+(minute|minutes|hour|hours|day|days)", when_lower)
+    if m:
+        amount = float(m.group(1))
+        unit = m.group(2)
+        if "minute" in unit:
+            return max(1, int(amount * 60))
+        if "hour" in unit:
+            return max(1, int(amount * 3600))
+        if "day" in unit:
+            return max(1, int(amount * 86400))
+    # Try ISO datetime
+    try:
+        target = datetime.fromisoformat(when)
+        if target.tzinfo is None:
+            target = target.replace(tzinfo=timezone.utc)
+        now = datetime.now(tz=timezone.utc)
+        delta = (target - now).total_seconds()
+        return max(1, int(delta))
+    except Exception:
+        pass
+    return 60
+
+
+async def execute_remind(
+    message: str, when: str, channel: str | None, config: "Config"
+) -> str:
+    delay = _parse_when(when)
+    body: dict = {"message": message, "delay_seconds": delay}
+    if channel:
+        key = "channel_id" if channel.isdigit() else "channel_name"
+        body[key] = int(channel) if channel.isdigit() else channel
+    try:
+        await _discord_api("POST", "/remind", config, body)
+        mins = delay // 60
+        secs = delay % 60
+        time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+        return f"Reminder set for {time_str} from now."
+    except Exception as e:
+        return f"Error setting reminder: {e}"
+
+
+async def execute_ollama_models(config: "Config") -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{config.ollama_host}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+
+        models = data.get("models", [])
+        if not models:
+            return "No models found on Ollama server."
+
+        lines = ["**Ollama Models**"]
+        for m in models:
+            name = m.get("name", "?")
+            size_bytes = m.get("size", 0)
+            if size_bytes >= 1_073_741_824:
+                size_str = f"{size_bytes / 1_073_741_824:.1f} GB"
+            else:
+                size_str = f"{size_bytes / 1_048_576:.0f} MB"
+            lines.append(f"- {name} ({size_str})")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing Ollama models: {e}"
+
+
+def _github_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+async def execute_github_list_issues(repo: str, state: str, config: "Config") -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/issues",
+                params={"state": state, "per_page": 20},
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            issues = resp.json()
+
+        if not issues:
+            return f"No {state} issues found in {repo}."
+
+        lines = [f"**{repo} — {state} issues ({len(issues)})**"]
+        for issue in issues:
+            number = issue.get("number")
+            title = issue.get("title", "")
+            labels = ", ".join(l["name"] for l in issue.get("labels", []))
+            label_str = f" [{labels}]" if labels else ""
+            lines.append(f"#{number}: {title}{label_str}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing issues: {e}"
+
+
+async def execute_github_get_issue(repo: str, number: int, config: "Config") -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/issues/{number}",
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            issue = resp.json()
+
+        title = issue.get("title", "")
+        state = issue.get("state", "")
+        body = (issue.get("body") or "").strip()[:1000]
+        labels = ", ".join(l["name"] for l in issue.get("labels", []))
+        author = issue.get("user", {}).get("login", "?")
+        created = issue.get("created_at", "")[:10]
+        comments = issue.get("comments", 0)
+
+        lines = [
+            f"**#{number}: {title}**",
+            f"State: {state} | Author: {author} | Created: {created} | Comments: {comments}",
+        ]
+        if labels:
+            lines.append(f"Labels: {labels}")
+        if body:
+            lines.append(f"\n{body}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching issue: {e}"
+
+
+async def execute_github_create_issue(
+    repo: str, title: str, body: str | None, labels: list[str] | None, config: "Config"
+) -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    payload: dict = {"title": title}
+    if body:
+        payload["body"] = body
+    if labels:
+        payload["labels"] = labels
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{repo}/issues",
+                json=payload,
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            issue = resp.json()
+
+        number = issue.get("number")
+        url = issue.get("html_url", "")
+        return f"Issue created: #{number} — {title}\n{url}"
+    except Exception as e:
+        return f"Error creating issue: {e}"
+
+
+async def execute_github_comment_issue(
+    repo: str, number: int, body: str, config: "Config"
+) -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{repo}/issues/{number}/comments",
+                json={"body": body},
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            comment = resp.json()
+
+        url = comment.get("html_url", "")
+        return f"Comment added to #{number}.\n{url}"
+    except Exception as e:
+        return f"Error adding comment: {e}"
+
+
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
 
@@ -824,4 +1282,34 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "discord_fetch_message":
         return await execute_discord_fetch_message(args["message_id"], args.get("channel"), config)
+    if name == "weather":
+        return await execute_weather(args["location"])
+    if name == "news":
+        return await execute_news(args.get("topic"))
+    if name == "qr_code":
+        return await execute_qr_code(args["text"], args["channel"], config)
+    if name == "discord_embed":
+        return await execute_discord_embed(
+            args["channel"],
+            args["title"],
+            args["description"],
+            args.get("color"),
+            args.get("fields"),
+            args.get("thumbnail"),
+            config,
+        )
+    if name == "remind":
+        return await execute_remind(args["message"], args["when"], args.get("channel"), config)
+    if name == "ollama_models":
+        return await execute_ollama_models(config)
+    if name == "github_list_issues":
+        return await execute_github_list_issues(args["repo"], args.get("state", "open"), config)
+    if name == "github_get_issue":
+        return await execute_github_get_issue(args["repo"], args["number"], config)
+    if name == "github_create_issue":
+        return await execute_github_create_issue(
+            args["repo"], args["title"], args.get("body"), args.get("labels"), config
+        )
+    if name == "github_comment_issue":
+        return await execute_github_comment_issue(args["repo"], args["number"], args["body"], config)
     return f"Unknown tool: {name}"
