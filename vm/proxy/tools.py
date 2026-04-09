@@ -342,6 +342,63 @@ ALL_TOOL_SCHEMAS = [
         },
         ["repo", "number", "body"],
     ),
+    _schema(
+        "crypto_price",
+        "Get the current price, 24h change %, and market cap for one or more cryptocurrencies using CoinGecko (no API key required).",
+        {
+            "symbols": {"type": "string", "description": "Comma-separated coin names/ids (e.g. 'bitcoin,ethereum,solana')"},
+            "vs_currency": {"type": "string", "description": "Quote currency (default: 'usd')"},
+        },
+        ["symbols"],
+    ),
+    _schema(
+        "crypto_trending",
+        "Get the top 7 trending cryptocurrencies on CoinGecko right now.",
+        {},
+        [],
+    ),
+    _schema(
+        "crypto_chart",
+        "Get a price history summary (high, low, current, % change) for a cryptocurrency over a period of days.",
+        {
+            "symbol": {"type": "string", "description": "Coin name or id (e.g. 'bitcoin', 'ethereum')"},
+            "days": {"type": "integer", "description": "Number of days of history (default 7, max 30)"},
+        },
+        ["symbol"],
+    ),
+    _schema(
+        "stock_quote",
+        "Get the current price, change, % change, volume, and market cap for a stock ticker using Yahoo Finance.",
+        {
+            "symbol": {"type": "string", "description": "Stock ticker symbol (e.g. 'AAPL', 'TSLA', 'MSFT')"},
+        },
+        ["symbol"],
+    ),
+    _schema(
+        "stock_info",
+        "Get company fundamentals for a stock ticker: sector, industry, P/E ratio, 52-week range, dividend yield, and description.",
+        {
+            "symbol": {"type": "string", "description": "Stock ticker symbol (e.g. 'AAPL', 'TSLA')"},
+        },
+        ["symbol"],
+    ),
+    _schema(
+        "polymarket_markets",
+        "Browse or search top Polymarket prediction markets by volume.",
+        {
+            "query": {"type": "string", "description": "Search query to filter markets (optional)"},
+            "limit": {"type": "integer", "description": "Number of markets to return (default 10)"},
+        },
+        [],
+    ),
+    _schema(
+        "polymarket_market",
+        "Get full details of a specific Polymarket prediction market by its slug.",
+        {
+            "slug": {"type": "string", "description": "Market slug (the URL identifier for the market)"},
+        },
+        ["slug"],
+    ),
 ]
 
 # Backwards compat alias used in tests / old imports
@@ -1214,6 +1271,386 @@ async def execute_github_comment_issue(
         return f"Error adding comment: {e}"
 
 
+# ── Financial data tools ──────────────────────────────────────────────────────
+
+
+async def _coingecko_search_id(client: httpx.AsyncClient, symbol: str) -> str | None:
+    """Search CoinGecko for a coin and return its id, or None if not found."""
+    try:
+        resp = await client.get(
+            "https://api.coingecko.com/api/v3/search",
+            params={"query": symbol},
+        )
+        if resp.status_code == 429:
+            return None
+        resp.raise_for_status()
+        coins = resp.json().get("coins", [])
+        if not coins:
+            return None
+        # Prefer exact id/symbol match, otherwise take the first result
+        symbol_lower = symbol.lower()
+        for coin in coins:
+            if coin.get("id", "").lower() == symbol_lower or coin.get("symbol", "").lower() == symbol_lower:
+                return coin["id"]
+        return coins[0]["id"]
+    except Exception:
+        return None
+
+
+def _fmt_large(n: float) -> str:
+    """Format a large number as $X.XXB / $X.XXT etc."""
+    if n >= 1_000_000_000_000:
+        return f"${n / 1_000_000_000_000:.2f}T"
+    if n >= 1_000_000_000:
+        return f"${n / 1_000_000_000:.2f}B"
+    if n >= 1_000_000:
+        return f"${n / 1_000_000:.2f}M"
+    return f"${n:,.2f}"
+
+
+async def execute_crypto_price(symbols: str, vs_currency: str = "usd") -> str:
+    try:
+        symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+        if not symbol_list:
+            return "No symbols provided."
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            ids = []
+            id_to_input: dict[str, str] = {}
+            for sym in symbol_list:
+                coin_id = await _coingecko_search_id(client, sym)
+                if coin_id is None:
+                    ids.append(sym)
+                    id_to_input[sym] = sym
+                else:
+                    ids.append(coin_id)
+                    id_to_input[coin_id] = sym
+
+            resp = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={
+                    "ids": ",".join(ids),
+                    "vs_currencies": vs_currency,
+                    "include_24hr_change": "true",
+                    "include_market_cap": "true",
+                },
+            )
+            if resp.status_code == 429:
+                return "CoinGecko rate limit reached (429). Please retry in a moment."
+            resp.raise_for_status()
+            data = resp.json()
+
+        if not data:
+            return "No price data returned. Check the coin names and try again."
+
+        lines = []
+        vs = vs_currency.lower()
+        for coin_id, prices in data.items():
+            price = prices.get(vs)
+            change = prices.get(f"{vs}_24h_change")
+            cap = prices.get(f"{vs}_market_cap")
+
+            price_str = f"${price:,.2f}" if price is not None else "N/A"
+            change_str = (
+                f"{'+' if change >= 0 else ''}{change:.2f}%"
+                if change is not None else "N/A"
+            )
+            cap_str = _fmt_large(cap) if cap else "N/A"
+            label = coin_id.replace("-", " ").title()
+            lines.append(f"{label}: {price_str} | 24h: {change_str} | Cap: {cap_str}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching crypto price: {e}"
+
+
+async def execute_crypto_trending() -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get("https://api.coingecko.com/api/v3/search/trending")
+            if resp.status_code == 429:
+                return "CoinGecko rate limit reached (429). Please retry in a moment."
+            resp.raise_for_status()
+            data = resp.json()
+
+        coins = data.get("coins", [])[:7]
+        if not coins:
+            return "No trending coins found."
+
+        lines = ["**Trending on CoinGecko**"]
+        for i, entry in enumerate(coins, 1):
+            item = entry.get("item", {})
+            name = item.get("name", "?")
+            symbol = item.get("symbol", "?")
+            data_block = item.get("data", {})
+            price_change = data_block.get("price_change_percentage_24h", {})
+            change_val = price_change.get("usd") if isinstance(price_change, dict) else None
+            change_str = (
+                f"{'+' if change_val >= 0 else ''}{change_val:.2f}%"
+                if change_val is not None else "N/A"
+            )
+            lines.append(f"{i}. {name} ({symbol}) — 24h: {change_str}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching trending coins: {e}"
+
+
+async def execute_crypto_chart(symbol: str, days: int = 7) -> str:
+    days = min(max(days, 1), 30)
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            coin_id = await _coingecko_search_id(client, symbol)
+            if coin_id is None:
+                return f"Could not find coin: {symbol}"
+
+            resp = await client.get(
+                f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart",
+                params={"vs_currency": "usd", "days": days},
+            )
+            if resp.status_code == 429:
+                return "CoinGecko rate limit reached (429). Please retry in a moment."
+            resp.raise_for_status()
+            data = resp.json()
+
+        prices = [p[1] for p in data.get("prices", []) if p[1] is not None]
+        if not prices:
+            return f"No price data available for {symbol} over {days} days."
+
+        high = max(prices)
+        low = min(prices)
+        current = prices[-1]
+        start = prices[0]
+        pct_change = ((current - start) / start * 100) if start else 0
+        direction = "+" if pct_change >= 0 else ""
+
+        label = coin_id.replace("-", " ").title()
+        return (
+            f"**{label} — {days}d chart summary**\n"
+            f"Current: ${current:,.2f}\n"
+            f"High: ${high:,.2f} | Low: ${low:,.2f}\n"
+            f"Period change: {direction}{pct_change:.2f}%"
+        )
+    except Exception as e:
+        return f"Error fetching crypto chart: {e}"
+
+
+_YAHOO_HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+
+async def execute_stock_quote(symbol: str) -> str:
+    sym = symbol.upper()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}",
+                params={"interval": "1d", "range": "1d"},
+                headers=_YAHOO_HEADERS,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        result = data.get("chart", {}).get("result")
+        if not result:
+            error = data.get("chart", {}).get("error", {})
+            return f"No data found for {sym}: {error.get('description', 'unknown error')}"
+
+        meta = result[0].get("meta", {})
+        price = meta.get("regularMarketPrice")
+        change = meta.get("regularMarketChange")
+        change_pct = meta.get("regularMarketChangePercent")
+        volume = meta.get("regularMarketVolume")
+        market_cap = meta.get("marketCap")
+
+        price_str = f"${price:,.2f}" if price is not None else "N/A"
+        change_str = (
+            f"{'+' if change >= 0 else ''}{change:.2f} ({'+' if change_pct >= 0 else ''}{change_pct:.2f}%)"
+            if change is not None and change_pct is not None else "N/A"
+        )
+        vol_str = f"{volume / 1_000_000:.1f}M" if volume else "N/A"
+        cap_str = _fmt_large(market_cap) if market_cap else "N/A"
+
+        return f"{sym}: {price_str} | {change_str} | Vol: {vol_str} | Cap: {cap_str}"
+    except Exception as e:
+        return f"Error fetching quote for {sym}: {e}"
+
+
+async def execute_stock_info(symbol: str) -> str:
+    sym = symbol.upper()
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{sym}",
+                params={"modules": "price,summaryDetail,assetProfile"},
+                headers=_YAHOO_HEADERS,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        result = data.get("quoteSummary", {}).get("result")
+        if not result:
+            error = data.get("quoteSummary", {}).get("error", {})
+            return f"No data found for {sym}: {error.get('message', 'unknown error') if error else 'unknown error'}"
+
+        modules = result[0]
+        price_mod = modules.get("price", {})
+        summary = modules.get("summaryDetail", {})
+        profile = modules.get("assetProfile", {})
+
+        company_name = price_mod.get("longName") or price_mod.get("shortName") or sym
+        sector = profile.get("sector", "N/A")
+        industry = profile.get("industry", "N/A")
+        description = (profile.get("longBusinessSummary") or "")[:300]
+
+        pe_ratio = summary.get("trailingPE", {})
+        pe_val = pe_ratio.get("raw") if isinstance(pe_ratio, dict) else pe_ratio
+        pe_str = f"{pe_val:.2f}" if isinstance(pe_val, (int, float)) else "N/A"
+
+        high_52 = summary.get("fiftyTwoWeekHigh", {})
+        low_52 = summary.get("fiftyTwoWeekLow", {})
+        high_val = high_52.get("raw") if isinstance(high_52, dict) else high_52
+        low_val = low_52.get("raw") if isinstance(low_52, dict) else low_52
+        range_str = f"${low_val:,.2f} – ${high_val:,.2f}" if isinstance(high_val, (int, float)) and isinstance(low_val, (int, float)) else "N/A"
+
+        div_yield = summary.get("dividendYield", {})
+        div_val = div_yield.get("raw") if isinstance(div_yield, dict) else div_yield
+        div_str = f"{div_val * 100:.2f}%" if isinstance(div_val, (int, float)) and div_val else "N/A"
+
+        lines = [
+            f"**{company_name} ({sym})**",
+            f"Sector: {sector} | Industry: {industry}",
+            f"P/E Ratio: {pe_str} | 52w Range: {range_str} | Dividend Yield: {div_str}",
+        ]
+        if description:
+            lines.append(f"\n{description}{'...' if len(profile.get('longBusinessSummary', '')) > 300 else ''}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching info for {sym}: {e}"
+
+
+def _fmt_polymarket_date(date_str: str | None) -> str:
+    if not date_str:
+        return "N/A"
+    try:
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
+    except Exception:
+        return date_str[:10] if date_str else "N/A"
+
+
+def _fmt_polymarket_volume(vol) -> str:
+    try:
+        v = float(vol)
+    except (TypeError, ValueError):
+        return "N/A"
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"${v / 1_000:.1f}K"
+    return f"${v:.2f}"
+
+
+def _format_market(market: dict) -> str:
+    question = market.get("question", "?")
+    outcomes = market.get("outcomes")
+    outcome_prices = market.get("outcomePrices")
+    volume = market.get("volume")
+    end_date = market.get("endDate") or market.get("end_date_iso")
+
+    lines = [f"**{question}**"]
+
+    if outcomes and outcome_prices:
+        try:
+            outcome_list = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
+            price_list = json.loads(outcome_prices) if isinstance(outcome_prices, str) else outcome_prices
+            for name, prob in zip(outcome_list, price_list):
+                pct = float(prob) * 100
+                lines.append(f"  • {name}: {pct:.1f}%")
+        except Exception:
+            pass
+
+    vol_str = _fmt_polymarket_volume(volume)
+    date_str = _fmt_polymarket_date(end_date)
+    lines.append(f"  Volume: {vol_str} | Ends: {date_str}")
+    return "\n".join(lines)
+
+
+async def execute_polymarket_markets(query: str | None = None, limit: int = 10) -> str:
+    limit = min(max(limit, 1), 50)
+    try:
+        params: dict = {
+            "active": "true",
+            "order": "volume",
+            "ascending": "false",
+            "limit": limit,
+        }
+        if query:
+            params["search"] = query
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get("https://gamma-api.polymarket.com/markets", params=params)
+            resp.raise_for_status()
+            markets = resp.json()
+
+        if not markets:
+            return "No markets found."
+
+        header = f"**Top {len(markets)} Polymarket markets" + (f" matching '{query}'" if query else " by volume") + "**\n"
+        sections = [_format_market(m) for m in markets]
+        return header + "\n\n".join(sections)
+    except Exception as e:
+        return f"Error fetching Polymarket markets: {e}"
+
+
+async def execute_polymarket_market(slug: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://gamma-api.polymarket.com/markets",
+                params={"slug": slug},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if not data:
+            return f"No market found with slug: {slug}"
+
+        market = data[0] if isinstance(data, list) else data
+        question = market.get("question", "?")
+        description = (market.get("description") or "").strip()[:500]
+        outcomes = market.get("outcomes")
+        outcome_prices = market.get("outcomePrices")
+        volume = market.get("volume")
+        end_date = market.get("endDate") or market.get("end_date_iso")
+        resolution = (market.get("resolutionCriteria") or market.get("resolution_source") or "").strip()[:300]
+
+        lines = [f"**{question}**"]
+
+        if outcomes and outcome_prices:
+            try:
+                outcome_list = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
+                price_list = json.loads(outcome_prices) if isinstance(outcome_prices, str) else outcome_prices
+                for name, prob in zip(outcome_list, price_list):
+                    pct = float(prob) * 100
+                    lines.append(f"  • {name}: {pct:.1f}%")
+            except Exception:
+                pass
+
+        vol_str = _fmt_polymarket_volume(volume)
+        date_str = _fmt_polymarket_date(end_date)
+        lines.append(f"Volume: {vol_str} | Ends: {date_str}")
+
+        if description:
+            lines.append(f"\n{description}{'...' if len(market.get('description', '')) > 500 else ''}")
+        if resolution:
+            lines.append(f"\n**Resolution criteria:** {resolution}{'...' if len(market.get('resolutionCriteria', '') or '') > 300 else ''}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching market '{slug}': {e}"
+
+
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
 
@@ -1312,4 +1749,18 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "github_comment_issue":
         return await execute_github_comment_issue(args["repo"], args["number"], args["body"], config)
+    if name == "crypto_price":
+        return await execute_crypto_price(args["symbols"], args.get("vs_currency", "usd"))
+    if name == "crypto_trending":
+        return await execute_crypto_trending()
+    if name == "crypto_chart":
+        return await execute_crypto_chart(args["symbol"], args.get("days", 7))
+    if name == "stock_quote":
+        return await execute_stock_quote(args["symbol"])
+    if name == "stock_info":
+        return await execute_stock_info(args["symbol"])
+    if name == "polymarket_markets":
+        return await execute_polymarket_markets(args.get("query"), args.get("limit", 10))
+    if name == "polymarket_market":
+        return await execute_polymarket_market(args["slug"])
     return f"Unknown tool: {name}"
