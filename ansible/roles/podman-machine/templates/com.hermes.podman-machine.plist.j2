@@ -15,7 +15,7 @@
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
-        <string>{{ ansible_env.HOME }}</string>
+        <string>{{ ansible_facts['env']['HOME'] }}</string>
         <key>PATH</key>
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     </dict>

@@ -42,6 +42,7 @@ all:
       ansible_user: core
       ansible_ssh_private_key_file: "${SSH_KEY}"
       ansible_ssh_extra_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      ansible_python_interpreter: /usr/bin/python3.14
       vm_bridge_iface: "${VM_BRIDGE_IFACE}"
 EOF
 

@@ -19,7 +19,7 @@
         <key>OLLAMA_HOST</key>
         <string>{{ ollama_host }}:{{ ollama_port }}</string>
         <key>HOME</key>
-        <string>{{ ansible_env.HOME }}</string>
+        <string>{{ ansible_facts['env']['HOME'] }}</string>
         <key>PATH</key>
         <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
     </dict>

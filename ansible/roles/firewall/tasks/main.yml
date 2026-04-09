@@ -28,13 +28,13 @@
 - name: Deploy pf boot launchd plist
   ansible.builtin.template:
     src: com.hermes.pf.plist.j2
-    dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.pf.plist"
+    dest: "{{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.hermes.pf.plist"
     mode: "0644"
 
 - name: Load pf launchd plist
   ansible.builtin.command: >
     launchctl load -w
-    {{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.pf.plist
+    {{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.hermes.pf.plist
   register: pf_load
   changed_when: pf_load.rc == 0
   failed_when: pf_load.rc != 0 and "already loaded" not in pf_load.stderr

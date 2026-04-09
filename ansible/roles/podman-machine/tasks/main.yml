@@ -36,13 +36,13 @@
 - name: Deploy podman-machine launchd plist
   ansible.builtin.template:
     src: com.hermes.podman-machine.plist.j2
-    dest: "{{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.podman-machine.plist"
+    dest: "{{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.hermes.podman-machine.plist"
     mode: "0644"
 
 - name: Load podman-machine launchd plist
   ansible.builtin.command: >
     launchctl load -w
-    {{ ansible_env.HOME }}/Library/LaunchAgents/com.hermes.podman-machine.plist
+    {{ ansible_facts['env']['HOME'] }}/Library/LaunchAgents/com.hermes.podman-machine.plist
   register: pm_load
   changed_when: pm_load.rc == 0
   failed_when: pm_load.rc != 0 and "already loaded" not in pm_load.stderr
