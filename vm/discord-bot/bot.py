@@ -11,7 +11,8 @@ load_dotenv()
 TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["DISCORD_CHANNEL_ID"])
 PROXY_URL = os.environ.get("PROXY_URL", "http://hermes-proxy:8000")
-MODEL = os.environ.get("MODEL", "hermes3")
+DEFAULT_MODEL = os.environ.get("MODEL", "hermes3")
+ALLOWED_MODELS = [m.strip() for m in os.environ.get("ALLOWED_MODELS", DEFAULT_MODEL).split(",")]
 
 # Edit the in-progress reply at most every EDIT_INTERVAL characters of new content.
 # This prevents Discord API rate limits (5 edits / 5 seconds per message).
@@ -22,6 +23,9 @@ intents.message_content = True  # required for reading message text (privileged 
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 history = ChannelHistory()
+
+# Active model — can be changed per-session with !model
+current_model = DEFAULT_MODEL
 
 
 def split_message(text: str, max_len: int = 1990) -> list[str]:
@@ -45,6 +49,33 @@ async def clear_history(ctx: commands.Context) -> None:
     await ctx.send("Conversation history cleared.")
 
 
+@bot.command(name="model")
+async def switch_model(ctx: commands.Context, model_name: str = None) -> None:
+    """Show or change the active model. Usage: !model [name]"""
+    global current_model
+    if ctx.channel.id != CHANNEL_ID:
+        return
+
+    if model_name is None:
+        model_list = "\n".join(
+            f"{'→' if m == current_model else '  '} `{m}`" for m in ALLOWED_MODELS
+        )
+        await ctx.send(f"**Current model:** `{current_model}`\n\n**Available:**\n{model_list}")
+        return
+
+    if model_name not in ALLOWED_MODELS:
+        await ctx.send(
+            f"❌ `{model_name}` is not in the allowed list.\n"
+            f"Use `!model` to see available models."
+        )
+        return
+
+    old = current_model
+    current_model = model_name
+    history.clear(ctx.channel.id)
+    await ctx.send(f"Switched from `{old}` → `{current_model}`. History cleared.")
+
+
 @bot.event
 async def on_message(msg: discord.Message) -> None:
     # Ignore our own messages and other bots
@@ -54,7 +85,7 @@ async def on_message(msg: discord.Message) -> None:
     if msg.channel.id != CHANNEL_ID:
         return
 
-    # Process !commands first (e.g., !clear)
+    # Process !commands first (e.g., !clear, !model)
     await bot.process_commands(msg)
     if msg.content.startswith("!"):
         return
@@ -68,7 +99,7 @@ async def on_message(msg: discord.Message) -> None:
     last_edit_len = 0
 
     try:
-        async for chunk in stream_response(PROXY_URL, MODEL, history.get(msg.channel.id)):
+        async for chunk in stream_response(PROXY_URL, current_model, history.get(msg.channel.id)):
             full_response += chunk
             # Edit every EDIT_EVERY_CHARS new characters to avoid rate limits
             if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
