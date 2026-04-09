@@ -6,24 +6,10 @@
     mode: "0755"
   become: true
 
-- name: Get VM SSH hostname (to locate the bridge interface)
-  ansible.builtin.shell: >
-    podman machine ssh-config {{ podman_machine_name }} | awk '/HostName/ {print $2}'
-  register: vm_ip_result
-  changed_when: false
-  failed_when: false
-
-- name: Discover VM bridge interface via route lookup
-  ansible.builtin.shell: >
-    route get {{ vm_ip_result.stdout | trim }} | awk '/interface:/ {print $2}'
-  register: bridge_result
-  changed_when: false
-  failed_when: false
-  when: vm_ip_result.stdout | trim | length > 0
-
-- name: Set vm_bridge_iface fact (falls back to bridge100 if discovery fails)
-  ansible.builtin.set_fact:
-    vm_bridge_iface: "{{ (bridge_result.stdout | default('') | trim) or 'bridge100' }}"
+# With Podman 5.x user-mode networking there is no host-side bridge interface.
+# We restrict Ollama by source subnet (192.168.127.0/24) rather than interface.
+# vm_bridge_iface is kept in the template as a no-op placeholder (lo0) so the
+# pf rule syntax remains valid; the security is enforced by the from-subnet clause.
 
 - name: Render hermes pf rules
   ansible.builtin.template:

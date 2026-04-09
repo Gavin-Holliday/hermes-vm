@@ -1,9 +1,9 @@
 # /etc/pf.d/hermes.conf
 # Rendered by Ansible from host/firewall/hermes.pf.conf.j2
 # Restricts Ollama (port 11434) to three sources only:
-#   1. localhost
-#   2. ZeroTier VPN subnet
-#   3. Podman machine VM bridge interface
+#   1. localhost (lo0)
+#   2. ZeroTier VPN subnet ({{ zt_interface }})
+#   3. Podman VM user-mode subnet (192.168.127.0/24 — no host bridge with applehv)
 #
 # WARNING: macOS system updates can reset pf rules.
 # A launchd plist (com.hermes.pf) reloads these rules on every boot/login.
@@ -15,8 +15,8 @@ pass in quick on lo0 proto tcp from 127.0.0.1 to any port 11434
 # Allow from ZeroTier VPN subnet
 pass in quick on {{ zt_interface }} proto tcp from {{ zt_subnet }} to any port 11434
 
-# Allow from Podman machine VM bridge
-pass in quick on {{ vm_bridge_iface }} proto tcp from {{ vm_subnet }} to any port 11434
+# Allow from Podman VM user-mode NAT subnet (no visible bridge with applehv UserModeNetworking)
+pass in quick proto tcp from {{ vm_subnet }} to any port 11434
 
 # Block everything else reaching Ollama
 block in quick proto tcp to any port 11434

@@ -24,5 +24,14 @@
   loop: "{{ allowed_models.split(',') | map('trim') | list }}"
   register: pull_result
   changed_when: "'already up to date' not in pull_result.stdout"
+  # Non-fatal: unknown model names or transient registry errors should not abort setup.
+  # The proxy will reject requests for models that aren't locally available anyway.
+  failed_when: false
   environment:
     OLLAMA_HOST: "http://{{ ollama_host }}:{{ ollama_port }}"
+
+- name: Warn about failed model pulls
+  ansible.builtin.debug:
+    msg: "WARNING: Failed to pull model '{{ item.item }}': {{ item.stderr_lines | last | default('unknown error') }}"
+  loop: "{{ pull_result.results }}"
+  when: item.rc != 0

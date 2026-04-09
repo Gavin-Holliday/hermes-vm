@@ -30,7 +30,7 @@ tool_timeout_secs: "{{ lookup('env', 'TOOL_TIMEOUT_SECS') | default('120') }}"
 # Network
 zt_interface: "{{ lookup('env', 'ZT_INTERFACE') }}"
 zt_subnet: "{{ lookup('env', 'ZT_SUBNET') }}"
-vm_subnet: "{{ lookup('env', 'VM_SUBNET') | default('192.168.64.0/24') }}"
-# vm_bridge_iface is discovered at runtime by the firewall role via `route get`.
-# This default is used if discovery fails (bridge100 is the Podman machine default on macOS).
-vm_bridge_iface: "bridge100"
+vm_subnet: "{{ lookup('env', 'VM_SUBNET') | default('192.168.127.0/24') }}"
+# Podman 5.x applehv uses user-mode networking — no host-side bridge interface.
+# vm_bridge_iface is written to the inventory by gen-inventory.sh (always lo0 with applehv).
+vm_bridge_iface: "lo0"

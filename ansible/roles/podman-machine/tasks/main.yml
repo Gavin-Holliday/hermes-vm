@@ -11,8 +11,20 @@
     --cpus {{ podman_machine_cpus }}
     --memory {{ podman_machine_memory_mb }}
     --disk-size {{ podman_machine_disk_gb }}
-    --now
   when: machine_inspect.rc != 0
+
+- name: Stop any other running Podman VM (only one can run at a time)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    # Parse 'Currently running' column — avoids Go template syntax that Jinja2 would misparse
+    running=$(podman machine list --noheading \
+      | awk '/Currently running/ {gsub(/\*/, "", $1); print $1}' \
+      | grep -v "^{{ podman_machine_name }}$" || true)
+    if [[ -n "$running" ]]; then
+      echo "Stopping $running to free the VM slot..."
+      podman machine stop "$running"
+    fi
+  changed_when: false
 
 - name: Start hermes-machine if not running
   ansible.builtin.command: scripts/start-hermes-machine.sh

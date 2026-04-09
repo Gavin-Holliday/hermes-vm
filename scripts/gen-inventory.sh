@@ -6,21 +6,30 @@ set -euo pipefail
 MACHINE_NAME="hermes-machine"
 OUT="ansible/inventory/hermes-machine.yml"
 
-# Extract the SSH port from podman machine's ssh-config output
-SSH_PORT=$(podman machine ssh-config "$MACHINE_NAME" 2>/dev/null \
-  | awk '/Port / {print $2}')
+# podman machine ssh-config was removed in Podman 5.x.
+# Use `podman machine inspect` and parse JSON instead.
+inspect_json=$(podman machine inspect "$MACHINE_NAME" 2>/dev/null)
 
-if [[ -z "$SSH_PORT" ]]; then
-  echo "ERROR: Could not determine SSH port for $MACHINE_NAME." >&2
+if [[ -z "$inspect_json" ]]; then
+  echo "ERROR: Could not inspect $MACHINE_NAME." >&2
   echo "       Is the machine running? Run: podman machine start $MACHINE_NAME" >&2
   exit 1
 fi
 
-# Discover the VM bridge interface by finding which host interface routes to the VM's IP.
-# podman machine inspect doesn't expose the bridge name directly (Docker schema != Podman schema).
-VM_IP=$(podman machine ssh-config "$MACHINE_NAME" 2>/dev/null | awk '/HostName/ {print $2}')
-VM_BRIDGE_IFACE=$(route get "$VM_IP" 2>/dev/null | awk '/interface:/ {print $2}')
-VM_BRIDGE_IFACE="${VM_BRIDGE_IFACE:-bridge100}"   # fallback: bridge100 is the Podman default on macOS
+SSH_PORT=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d[0]['SSHConfig']['Port'])" <<< "$inspect_json")
+SSH_KEY=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d[0]['SSHConfig']['IdentityPath'])" <<< "$inspect_json")
+STATE=$(python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d[0]['State'])" <<< "$inspect_json")
+
+if [[ "$STATE" != "running" ]]; then
+  echo "ERROR: $MACHINE_NAME is in state '$STATE', not running." >&2
+  echo "       Run: podman machine start $MACHINE_NAME" >&2
+  exit 1
+fi
+
+# With user-mode networking (UserModeNetworking=true) there is no host-side bridge.
+# The VM subnet is 192.168.127.0/24; vm_bridge_iface is set to "lo0" as a harmless
+# placeholder — the pf rule for VM traffic uses the source subnet, not the interface.
+VM_BRIDGE_IFACE="lo0"
 
 mkdir -p "$(dirname "$OUT")"
 cat > "$OUT" <<EOF
@@ -31,8 +40,9 @@ all:
       ansible_host: 127.0.0.1
       ansible_port: ${SSH_PORT}
       ansible_user: core
+      ansible_ssh_private_key_file: "${SSH_KEY}"
       ansible_ssh_extra_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
       vm_bridge_iface: "${VM_BRIDGE_IFACE}"
 EOF
 
-echo "Wrote $OUT (port=$SSH_PORT, bridge=$VM_BRIDGE_IFACE)"
+echo "Wrote $OUT (port=$SSH_PORT, key=$SSH_KEY, bridge=$VM_BRIDGE_IFACE)"

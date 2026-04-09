@@ -7,16 +7,23 @@
   hosts: localhost
   gather_facts: true
   roles:
-    - prerequisites
-    - ollama
-    - firewall
-    - podman-machine
+    - role: prerequisites
+      tags: prerequisites
+    - role: ollama
+      tags: ollama
+    - role: firewall
+      tags: firewall
+    - role: podman-machine
+      tags: podman-machine
 
 # ── VM roles (run inside hermes-machine via SSH) ──────────────────────────────
 - name: Provision hermes-machine VM
   hosts: hermes-machine
   gather_facts: true
   roles:
-    - vm-quadlets
-    - vm-volumes
-    - vm-autoupdate
+    - role: vm-quadlets
+      tags: vm-quadlets
+    - role: vm-volumes
+      tags: vm-volumes
+    - role: vm-autoupdate
+      tags: vm-autoupdate

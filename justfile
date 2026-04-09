@@ -7,13 +7,13 @@ set dotenv-load := true
 set export := true
 
 machine := "hermes-machine"
-ansible_cmd := "ansible-playbook ansible/site.yml -i ansible/inventory/localhost.yml -i ansible/inventory/hermes-machine.yml"
+ansible_cmd := "ansible-playbook ansible/site.yml -i ansible/inventory/localhost.yml -i ansible/inventory/hermes-machine.yml --ask-become-pass"
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 # One-time setup: install tools, create VM, provision everything
 setup:
-    brew bundle --no-lock
+    brew bundle
     scripts/gen-inventory.sh || true
     {{ansible_cmd}} --tags prerequisites,podman-machine
     scripts/gen-inventory.sh
