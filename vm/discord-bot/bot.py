@@ -97,7 +97,19 @@ async def main() -> None:
         if msg.content.startswith("!"):
             return
 
-        history.add(msg.channel.id, "user", msg.content)
+        # If the user replied to a specific message, include it as context
+        user_content = msg.content
+        if msg.reference and msg.reference.message_id:
+            try:
+                ref = await msg.channel.fetch_message(msg.reference.message_id)
+                user_content = (
+                    f"[Replying to {ref.author.display_name}: {ref.content[:500]}]\n"
+                    f"{msg.content}"
+                )
+            except Exception:
+                pass
+
+        history.add(msg.channel.id, "user", user_content)
 
         reply = await msg.channel.send("…")
         tracker.track(reply)
