@@ -97,7 +97,6 @@ async def main() -> None:
         if msg.content.startswith("!"):
             return
 
-        await msg.channel.trigger_typing()
         history.add(msg.channel.id, "user", msg.content)
 
         reply = await msg.channel.send("…")
