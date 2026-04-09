@@ -137,6 +137,55 @@ def make_handlers(
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def channel_history(request: web.Request) -> web.Response:
+        import datetime
+        q = request.rel_url.query
+        limit = int(q.get("limit", 25))
+        channel = await _resolve_channel(bot, cfg, dict(q))
+        if channel is None:
+            channel = bot.get_channel(cfg.channel_id)
+        if channel is None:
+            return web.json_response({"error": "channel not found"}, status=404)
+        kwargs: dict = {"limit": min(limit, 100)}
+        if q.get("before"):
+            kwargs["before"] = datetime.datetime.fromisoformat(q["before"])
+        if q.get("after"):
+            kwargs["after"] = datetime.datetime.fromisoformat(q["after"])
+        try:
+            messages = []
+            async for msg in channel.history(**kwargs):
+                messages.append({
+                    "id": str(msg.id),
+                    "author": msg.author.display_name,
+                    "bot": msg.author.bot,
+                    "content": msg.content,
+                    "timestamp": msg.created_at.isoformat(),
+                })
+            return web.json_response({"messages": messages})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def fetch_message(request: web.Request) -> web.Response:
+        message_id = request.rel_url.query.get("message_id")
+        if not message_id:
+            return web.json_response({"error": "message_id required"}, status=400)
+        channel = await _resolve_channel(bot, cfg, dict(request.rel_url.query))
+        if channel is None:
+            channel = bot.get_channel(cfg.channel_id)
+        if channel is None:
+            return web.json_response({"error": "channel not found"}, status=404)
+        try:
+            msg = await channel.fetch_message(int(message_id))
+            return web.json_response({
+                "id": str(msg.id),
+                "author": msg.author.display_name,
+                "bot": msg.author.bot,
+                "content": msg.content,
+                "timestamp": msg.created_at.isoformat(),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def delete_messages(request: web.Request) -> web.Response:
         data = await request.json()
         deleted = 0
@@ -169,9 +218,11 @@ def make_handlers(
         "GET  /members":  list_members,
         "POST /poll":     create_poll,
         "POST /react":    add_reaction,
-        "POST /thread":   create_thread,
-        "POST /pin":      pin_message,
-        "POST /delete":   delete_messages,
+        "POST /thread":    create_thread,
+        "POST /pin":       pin_message,
+        "POST /delete":    delete_messages,
+        "GET  /history":   channel_history,
+        "GET  /message":   fetch_message,
     }
 
 

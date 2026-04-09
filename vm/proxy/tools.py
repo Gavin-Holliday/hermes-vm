@@ -210,6 +210,26 @@ ALL_TOOL_SCHEMAS = [
         },
         ["query", "channel"],
     ),
+    _schema(
+        "discord_history",
+        "Read recent chat history from a Discord channel. Returns messages with IDs, authors, content, and timestamps. Use before/after to navigate to a specific time window.",
+        {
+            "limit": {"type": "integer", "description": "Number of messages to fetch (default 25, max 100)"},
+            "channel": {"type": "string", "description": "Channel name or ID (defaults to main channel)"},
+            "before": {"type": "string", "description": "Fetch messages before this ISO timestamp (e.g. '2024-03-15T14:00:00')"},
+            "after": {"type": "string", "description": "Fetch messages after this ISO timestamp (e.g. '2024-03-15T12:00:00')"},
+        },
+        [],
+    ),
+    _schema(
+        "discord_fetch_message",
+        "Fetch a specific Discord message by ID.",
+        {
+            "message_id": {"type": "string", "description": "ID of the message to fetch"},
+            "channel": {"type": "string", "description": "Channel name or ID (defaults to main channel)"},
+        },
+        ["message_id"],
+    ),
 ]
 
 # Backwards compat alias used in tests / old imports
@@ -677,6 +697,45 @@ async def execute_discord_delete(
         return f"Error deleting message(s): {e}"
 
 
+async def execute_discord_history(
+    channel: str | None, limit: int, before: str | None, after: str | None, config: "Config"
+) -> str:
+    qs = f"limit={min(limit, 100)}"
+    if channel:
+        key = "channel_id" if channel.isdigit() else "channel_name"
+        qs += f"&{key}={channel}"
+    if before:
+        qs += f"&before={before}"
+    if after:
+        qs += f"&after={after}"
+    try:
+        data = await _discord_api("GET", f"/history?{qs}", config)
+        messages = data.get("messages", [])
+        if not messages:
+            return "No messages found."
+        lines = [
+            f"[{m['timestamp'][:16]}] {m['author']}{'(bot)' if m['bot'] else ''} (id:{m['id']}): {m['content'][:200]}"
+            for m in reversed(messages)
+        ]
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error fetching history: {e}"
+
+
+async def execute_discord_fetch_message(message_id: str, channel: str | None, config: "Config") -> str:
+    path = f"/message?message_id={message_id}"
+    if channel:
+        key = "channel_id" if channel.isdigit() else "channel_name"
+        path += f"&{key}={channel}"
+    try:
+        m = await _discord_api("GET", path, config)
+        if "error" in m:
+            return f"Error: {m['error']}"
+        return f"[{m['timestamp'][:16]}] {m['author']} (id:{m['id']}): {m['content']}"
+    except Exception as e:
+        return f"Error fetching message: {e}"
+
+
 async def execute_discord_gif(query: str, channel: str, config: "Config") -> str:
     # Use TENOR_API_KEY if set, otherwise fall back to Tenor's public demo key
     api_key = (getattr(config, "tenor_api_key", None) or "LIVDSRZULELA")
@@ -758,4 +817,11 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "discord_gif":
         return await execute_discord_gif(args["query"], args["channel"], config)
+    if name == "discord_history":
+        return await execute_discord_history(
+            args.get("channel"), args.get("limit", 25),
+            args.get("before"), args.get("after"), config
+        )
+    if name == "discord_fetch_message":
+        return await execute_discord_fetch_message(args["message_id"], args.get("channel"), config)
     return f"Unknown tool: {name}"

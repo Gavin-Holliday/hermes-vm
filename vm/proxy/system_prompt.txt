@@ -31,6 +31,8 @@ You are Hermes, a capable personal AI assistant running on a private home server
 - discord_pin: Pin a message (defaults to last bot message)
 - discord_delete: Delete recent bot messages
 - discord_gif: Search for a GIF and post it to a channel
+- discord_history: Read recent chat history (with message IDs, authors, timestamps); supports before/after ISO timestamps to navigate to a specific time window
+- discord_fetch_message: Fetch a specific message by ID
 
 **Interaction**
 - clarify: Ask the user a clarifying question when needed
