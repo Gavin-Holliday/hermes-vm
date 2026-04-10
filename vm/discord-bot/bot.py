@@ -75,17 +75,87 @@ async def main() -> None:
         await bot.tree.sync()
         log.info("Slash commands synced")
 
+    async def _seed_dm_context(user_id: int) -> None:
+        """Fetch last 10 main channel messages and seed DM history as context."""
+        main_channel = bot.get_channel(cfg.channel_id)
+        if main_channel is None:
+            return
+        try:
+            lines = []
+            async for m in main_channel.history(limit=10):
+                if m.content:
+                    lines.append(f"{m.author.display_name}: {m.content[:300]}")
+            if not lines:
+                return
+            lines.reverse()  # oldest first
+            context = "[Recent main channel context — last messages before this DM]\n" + "\n".join(lines)
+            history.add(user_id, "user", context)
+            history.add(user_id, "assistant", "Got it — I have that channel context and I'm ready to chat privately.")
+            log.info("Seeded DM context for user_id=%d (%d messages)", user_id, len(lines))
+        except Exception as exc:
+            log.warning("Failed to seed DM context: %s", exc)
+
+    async def _handle_dm(msg: discord.Message) -> None:
+        """Handle a private DM conversation, seeding main channel context on first message."""
+        log.info("DM from %s (id=%d): %r", msg.author, msg.author.id, msg.content[:80])
+
+        # Seed context from main channel on first message in this DM session
+        if not history.get(msg.author.id):
+            await _seed_dm_context(msg.author.id)
+
+        history.add(msg.author.id, "user", msg.content)
+
+        reply = await msg.channel.send("…")
+        full_response = ""
+        last_edit_len = 0
+
+        try:
+            async with msg.channel.typing():
+                async for chunk in stream_response(
+                    cfg.proxy_url,
+                    model_state.current,
+                    history.get(msg.author.id),
+                ):
+                    full_response += chunk
+                    if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
+                        display = full_response[:1990] + (
+                            "…" if len(full_response) > 1990 else ""
+                        )
+                        await reply.edit(content=display or "…")
+                        last_edit_len = len(full_response)
+        except Exception as exc:
+            await reply.edit(content=f"Error: {exc}")
+            return
+
+        if not full_response:
+            await reply.edit(content="(no response)")
+            return
+
+        history.add(msg.author.id, "assistant", full_response)
+
+        parts = _split(full_response)
+        await reply.edit(content=parts[0])
+        for part in parts[1:]:
+            await msg.channel.send(part)
+
     @bot.event
     async def on_message(msg: discord.Message) -> None:
         log.info(
-            "on_message: author=%s bot=%s channel=%d content=%r",
+            "on_message: author=%s bot=%s guild=%s channel=%s content=%r",
             msg.author,
             msg.author.bot,
-            msg.channel.id,
+            msg.guild,
+            msg.channel.id if hasattr(msg.channel, "id") else "DM",
             msg.content[:80] if msg.content else "",
         )
         if msg.author.bot:
             return
+
+        # Handle private DMs as their own sessions
+        if msg.guild is None:
+            await _handle_dm(msg)
+            return
+
         # Accept messages in the main channel OR in threads that belong to it
         parent_id = getattr(msg.channel, "parent_id", None)
         in_main = msg.channel.id == cfg.channel_id
