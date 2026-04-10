@@ -56,3 +56,67 @@ class SecurityValidator:
         base = content_type.split(";")[0].strip().lower()
         limit = self._pdf_limit if base == "application/pdf" else _HTML_LIMIT
         return len(content_bytes) <= limit
+
+
+from dataclasses import dataclass
+import httpx
+
+
+@dataclass
+class ValidationResult:
+    valid: bool
+    content_type: str = ""
+    last_modified: str = ""
+    reason: str = ""
+
+
+class SourceValidator:
+    def __init__(self, security: SecurityValidator, max_redirect_depth: int = 3):
+        self._security = security
+        self._max_redirects = max_redirect_depth
+        self._failures: dict[str, int] = {}
+
+    def _domain(self, url: str) -> str:
+        return urlparse(url).netloc.lower()
+
+    def _is_tripped(self, url: str) -> bool:
+        return self._failures.get(self._domain(url), 0) >= 3
+
+    def _record_failure(self, url: str) -> None:
+        d = self._domain(url)
+        self._failures[d] = self._failures.get(d, 0) + 1
+
+    async def validate_url(self, url: str) -> ValidationResult:
+        if self._is_tripped(url):
+            return ValidationResult(False, reason=f"circuit breaker: {self._domain(url)}")
+        if not self._security.check_ssrf(url):
+            return ValidationResult(False, reason="SSRF: private/internal IP")
+        try:
+            async with httpx.AsyncClient(
+                timeout=10.0, follow_redirects=True,
+                max_redirects=self._max_redirects,
+            ) as client:
+                headers = {"User-Agent": "Mozilla/5.0 (compatible; Hermes/1.0)"}
+                resp = await client.head(url, headers=headers)
+                if resp.status_code != 200:
+                    resp = await client.get(url, headers=headers)
+                if resp.status_code != 200:
+                    self._record_failure(url)
+                    return ValidationResult(False, reason=f"HTTP {resp.status_code}")
+                ct = resp.headers.get("content-type", "")
+                if not self._security.enforce_content_type(ct):
+                    return ValidationResult(False, reason=f"rejected content-type: {ct}")
+                cl = int(resp.headers.get("content-length", 0) or 0)
+                if cl > 0:
+                    limit = self._security._pdf_limit if "pdf" in ct else 2 * 1024 * 1024
+                    if cl > limit:
+                        self._record_failure(url)
+                        return ValidationResult(False, reason=f"too large: {cl} bytes")
+                lm = resp.headers.get("last-modified", "")
+                return ValidationResult(True, content_type=ct, last_modified=lm)
+        except httpx.TooManyRedirects:
+            self._record_failure(url)
+            return ValidationResult(False, reason="too many redirects")
+        except Exception as e:
+            self._record_failure(url)
+            return ValidationResult(False, reason=str(e))
