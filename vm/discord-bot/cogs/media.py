@@ -9,6 +9,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import BotConfig
+from services.poll import PollService
 
 
 class MediaCog(commands.Cog):
@@ -74,22 +75,13 @@ class MediaCog(commands.Cog):
     @app_commands.describe(args="question | option1 | option2 | ...")
     async def create_poll(self, ctx: commands.Context, *, args: str) -> None:
         """Create a native Discord poll lasting 24 hours."""
-        parts = [p.strip() for p in args.split("|")]
-        if len(parts) < 3:
-            await ctx.send(
-                "Usage: `!poll question | option 1 | option 2 [| ...]`\n"
-                "Minimum 2 options required."
-            )
+        poll_data, error = PollService.parse_and_validate(args)
+        if error:
+            await ctx.send(error)
             return
-        question, *options = parts
-        options = options[:10]
+
         try:
-            poll = discord.Poll(
-                question=question[:300],
-                duration=datetime.timedelta(hours=24),
-            )
-            for opt in options:
-                poll.add_answer(text=opt[:55])
+            poll = PollService.create_discord_poll(poll_data)
             await ctx.channel.send(poll=poll)
             try:
                 await ctx.message.delete()

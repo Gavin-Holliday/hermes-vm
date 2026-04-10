@@ -7,6 +7,7 @@ from discord.ext import commands
 
 from config import BotConfig
 from protocols import IHistory, IMessageTracker, IModelState
+from services.event import EventService
 
 
 class ServerCog(commands.Cog):
@@ -68,27 +69,17 @@ class ServerCog(commands.Cog):
     @app_commands.describe(args="name | description | YYYY-MM-DD HH:MM")
     async def create_event(self, ctx: commands.Context, *, args: str) -> None:
         """Create a scheduled server event."""
-        parts = [p.strip() for p in args.split("|")]
-        name = parts[0]
-        description = parts[1] if len(parts) > 1 else ""
-        start_time = (
-            datetime.datetime.now(datetime.timezone.utc)
-            + datetime.timedelta(hours=1)
-        )
-        if len(parts) > 2:
-            try:
-                start_time = datetime.datetime.fromisoformat(parts[2]).replace(
-                    tzinfo=datetime.timezone.utc
-                )
-            except ValueError:
-                await ctx.send("Invalid date. Use: YYYY-MM-DD HH:MM")
-                return
+        event_data, error = EventService.parse_and_validate(args)
+        if error:
+            await ctx.send(error)
+            return
+
         try:
             event = await ctx.guild.create_scheduled_event(
-                name=name[:100],
-                description=description[:1000],
-                start_time=start_time,
-                end_time=start_time + datetime.timedelta(hours=1),
+                name=event_data.name,
+                description=event_data.description,
+                start_time=event_data.start_time,
+                end_time=event_data.start_time + datetime.timedelta(hours=1),
                 entity_type=discord.EntityType.external,
                 location="Discord",
                 privacy_level=discord.PrivacyLevel.guild_only,
