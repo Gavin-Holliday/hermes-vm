@@ -124,3 +124,61 @@ class SourceValidator:
         except Exception as e:
             self._record_failure(url)
             return ValidationResult(False, reason=str(e))
+
+
+@dataclass
+class ResearcherOutput:
+    findings: list
+    prose_summary: str
+    citations: list
+    relevance_score: float
+    contradictions: list
+    gaps: list
+    failed_sources: list
+
+
+_REQUIRED_KEYS = {"findings", "prose_summary", "citations", "relevance_score",
+                  "contradictions", "gaps", "failed_sources"}
+_CITATION_KEYS = {"index", "title", "url", "domain", "date"}
+
+
+class OutputValidator:
+    @staticmethod
+    def validate(raw: dict) -> "ResearcherOutput | None":
+        if not isinstance(raw, dict):
+            return None
+        if not _REQUIRED_KEYS.issubset(raw.keys()):
+            return None
+        score = raw["relevance_score"]
+        if not isinstance(score, (int, float)) or not (0.0 <= score <= 1.0):
+            return None
+        for c in raw.get("citations", []):
+            if not _CITATION_KEYS.issubset(c.keys()):
+                return None
+        return ResearcherOutput(**{k: raw[k] for k in _REQUIRED_KEYS})
+
+
+class CitationAuditor:
+    _CITATION_RE = re.compile(r'\[\[(\d+)\]\]\(([^)]+)\)')
+
+    @staticmethod
+    def audit(report_text: str, sources: list, validated_urls: set) -> list:
+        errors = []
+        found_refs = {int(m.group(1)): m.group(2)
+                      for m in CitationAuditor._CITATION_RE.finditer(report_text)}
+        source_map = {s["index"]: s for s in sources}
+
+        for n, url in found_refs.items():
+            if n not in source_map:
+                errors.append(f"[{n}] referenced in text but no source entry for index {n}")
+                continue
+            if url not in validated_urls:
+                errors.append(f"[{n}] url {url} not validated (not HTTP 200)")
+
+        for s in sources:
+            if s["index"] not in found_refs:
+                errors.append(f"Source [{s['index']}] ({s['url']}) is orphaned — not cited in text")
+            for key in ("title", "url", "domain", "date"):
+                if not s.get(key):
+                    errors.append(f"Source [{s['index']}] missing field: {key}")
+        return errors

@@ -144,3 +144,58 @@ async def test_wrong_content_type_rejected(source_val):
     ))
     result = await source_val.validate_url("https://example.com/file.zip")
     assert result.valid is False
+
+
+from proxy.research.validators import OutputValidator, CitationAuditor, ResearcherOutput
+
+
+def test_output_validator_valid():
+    raw = {
+        "findings": ["fact [[1]](https://x.com)"],
+        "prose_summary": "summary text",
+        "citations": [{"index": 1, "title": "T", "url": "https://x.com", "domain": "x.com", "date": "2024-01-01"}],
+        "relevance_score": 0.9,
+        "contradictions": [],
+        "gaps": [],
+        "failed_sources": [],
+    }
+    result = OutputValidator.validate(raw)
+    assert result is not None
+    assert isinstance(result, ResearcherOutput)
+
+
+def test_output_validator_missing_field():
+    assert OutputValidator.validate({"findings": ["f"]}) is None
+
+
+def test_output_validator_bad_relevance():
+    raw = {
+        "findings": [], "prose_summary": "", "citations": [],
+        "relevance_score": 1.5, "contradictions": [], "gaps": [], "failed_sources": [],
+    }
+    assert OutputValidator.validate(raw) is None
+
+
+def test_citation_auditor_clean():
+    report = "Finding one [[1]](https://a.com) and two [[2]](https://b.com)."
+    sources = [
+        {"index": 1, "title": "A", "url": "https://a.com", "domain": "a.com", "date": "2024-01-01"},
+        {"index": 2, "title": "B", "url": "https://b.com", "domain": "b.com", "date": "2024-01-02"},
+    ]
+    validated = {"https://a.com", "https://b.com"}
+    errors = CitationAuditor.audit(report, sources, validated)
+    assert errors == []
+
+
+def test_citation_auditor_missing_source():
+    report = "Fact [[3]](https://c.com)."
+    sources = [{"index": 1, "title": "A", "url": "https://a.com", "domain": "a.com", "date": "2024-01-01"}]
+    errors = CitationAuditor.audit(report, sources, {"https://a.com"})
+    assert any("3" in e for e in errors)
+
+
+def test_citation_auditor_unvalidated_url():
+    report = "Fact [[1]](https://a.com)."
+    sources = [{"index": 1, "title": "A", "url": "https://a.com", "domain": "a.com", "date": "2024-01-01"}]
+    errors = CitationAuditor.audit(report, sources, set())  # empty validated set
+    assert any("not validated" in e for e in errors)
