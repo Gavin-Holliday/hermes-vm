@@ -1,5 +1,8 @@
+import asyncio
 import json
 import logging
+import time
+import uuid
 
 import httpx
 
@@ -150,3 +153,198 @@ class ResearchAgent:
             )
             resp.raise_for_status()
             return resp.json()["message"]["content"]
+
+
+from proxy.research.knowledge import KnowledgeBase
+from proxy.research.queries import QueryManager
+from proxy.research.report import ReportBuilder
+from proxy.research.memory import MemoryGuard
+from proxy.research.storage import ResearchStore
+
+ORCHESTRATOR_SYSTEM_PROMPT = """You are a research orchestrator reviewing agent findings.
+Given a knowledge base summary, respond with JSON:
+{"satisfied": false, "new_queries": ["query1", "query2"], "reasoning": "..."}
+Set satisfied=true only when you have comprehensive coverage of the topic."""
+
+
+class ResearchEngine:
+    def __init__(self, job_id: str, topic: str, channel: str, config,
+                 memory_guard: MemoryGuard, store: ResearchStore,
+                 discord_api_url: str, mode: str = "research"):
+        self.job_id = job_id
+        self._topic = topic
+        self._channel = channel
+        self._config = config
+        self._memory_guard = memory_guard
+        self._store = store
+        self._discord_api_url = discord_api_url
+        self._mode = mode
+        self._kb = KnowledgeBase(topic)
+        self._qm = QueryManager()
+        self._security = SecurityValidator(config.research_max_pdf_size_mb)
+        self._source_val = SourceValidator(self._security, config.research_max_redirect_depth)
+        self._processor = ContentProcessor()
+        self._output_val = OutputValidator()
+        self._agent = ResearchAgent(config, self._security, self._source_val,
+                                    self._processor, self._output_val)
+        self._builder = ReportBuilder(config)
+
+    async def run(self) -> None:
+        start = time.monotonic()
+        await self._post_progress("Starting — generating research queries...")
+        self._qm.expand(self._topic)
+        satisfied = False
+        verification_done = False
+        round_num = 0
+
+        for round_num in range(1, self._config.research_max_rounds + 1):
+            elapsed_mins = (time.monotonic() - start) / 60
+            if elapsed_mins >= self._config.research_timeout_mins:
+                await self._post_progress("Time limit reached — building report...")
+                break
+
+            while self._memory_guard.should_pause_research():
+                await asyncio.sleep(10)
+
+            queries = self._qm.next_batch(5)
+            if not queries:
+                break
+
+            await self._post_progress(f"Round {round_num} — researching {len(queries)} subtopics...")
+            outputs = await asyncio.gather(*[self._agent.run(q, self._topic) for q in queries])
+            valid = [o for o in outputs if o is not None]
+            self._kb.ingest(valid)
+            self._kb.increment_round()
+
+            coverage = self._kb.coverage_score()
+            novelty = self._kb.novelty_rate()
+            await self._post_progress(
+                f"Round {round_num} complete — {len(valid)} agents returned findings, "
+                f"{coverage:.0%} coverage. Identifying gaps..."
+            )
+
+            if novelty < self._config.research_novelty_threshold and round_num > 1:
+                await self._post_progress("Diminishing returns — building report...")
+                break
+
+            if satisfied and not verification_done:
+                verification_done = True
+                await self._post_progress("Sufficient findings — running verification round...")
+                self._qm.add_from_gaps([
+                    f"criticism of {self._topic}",
+                    f"{self._topic} problems issues counterargument",
+                ])
+                continue
+
+            if satisfied and verification_done:
+                break
+
+            review = await self._orchestrator_review()
+            if review.get("satisfied"):
+                satisfied = True
+            for q in review.get("new_queries", []):
+                self._qm.add_from_gaps([q])
+
+        duration = time.monotonic() - start
+        await self._post_progress("Synthesizing report...")
+        report = await self._builder.build(self._topic, self._kb, round_num, duration)
+        await self._post_progress("Running self-review...")
+        embeds = self._builder.build_embeds(report)
+        for embed in embeds:
+            await self._post_embed(embed)
+        self._store.save(
+            topic=self._topic,
+            report_text=report.findings_text,
+            sources=self._kb.all_sources(),
+            kb_snapshot={"findings_count": len(self._kb._store.all())},
+            metadata={
+                "agent_model": self._config.research_agent_model,
+                "orchestrator_model": self._config.research_orchestrator_model,
+                "duration_secs": int(duration),
+                "rounds": round_num,
+            },
+        )
+        await self._post_progress(
+            f"Complete — {report.source_count} sources · {round_num} rounds · "
+            f"{int(duration // 60)}m {int(duration % 60)}s"
+        )
+
+    async def _orchestrator_review(self) -> dict:
+        summary = self._kb.compact_summary()
+        messages = [
+            {"role": "system", "content": ORCHESTRATOR_SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Topic: {self._topic}\nCoverage: {self._kb.coverage_score():.0%}\n\n{summary}"
+            )},
+        ]
+        raw = await self._agent._ollama_call(self._config.research_orchestrator_model, messages)
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"satisfied": False, "new_queries": [], "reasoning": "parse error"}
+
+    async def _post_progress(self, message: str) -> None:
+        text = f"[Research: '{self._topic}'] {message}"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{self._discord_api_url}/send",
+                    json={"channel_name": self._channel, "content": text},
+                )
+        except Exception:
+            pass
+
+    async def _post_embed(self, embed: dict) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"{self._discord_api_url}/embed",
+                    json={**embed, "channel_name": self._channel},
+                )
+        except Exception:
+            pass
+
+
+class JobManager:
+    def __init__(self, config, memory_guard: MemoryGuard, store: ResearchStore,
+                 discord_api_url: str):
+        self._config = config
+        self._memory_guard = memory_guard
+        self._store = store
+        self._discord_api_url = discord_api_url
+        self._active: dict = {}
+        self._queue: list = []
+
+    async def submit(self, topic: str, channel: str, mode: str = "research",
+                     seed_urls: list = None) -> str:
+        job_id = str(uuid.uuid4())[:8]
+        if len(self._active) < self._config.research_max_concurrent:
+            await self._start_job(job_id, topic, channel, mode)
+            return f"Research started on '{topic}' (job {job_id})"
+        else:
+            self._queue.append((job_id, topic, channel, mode))
+            return f"Research queued (#{len(self._queue)} in line) — '{topic}'"
+
+    async def _start_job(self, job_id: str, topic: str, channel: str, mode: str) -> None:
+        engine = ResearchEngine(
+            job_id, topic, channel, self._config,
+            self._memory_guard, self._store,
+            self._discord_api_url, mode,
+        )
+        self._active[job_id] = engine
+        self._memory_guard.set_research_active({
+            self._config.research_agent_model,
+            self._config.research_orchestrator_model,
+        })
+        asyncio.create_task(self._run_job(job_id, engine))
+
+    async def _run_job(self, job_id: str, engine: ResearchEngine) -> None:
+        try:
+            await engine.run()
+        finally:
+            self._active.pop(job_id, None)
+            if not self._active:
+                self._memory_guard.set_research_inactive()
+            if self._queue:
+                next_args = self._queue.pop(0)
+                await self._start_job(*next_args)

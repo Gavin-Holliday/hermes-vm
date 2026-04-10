@@ -71,3 +71,31 @@ async def test_agent_returns_none_on_invalid_output(agent, cfg):
     }))
     result = await agent.run("query", "topic")
     assert result is None
+
+
+from proxy.research.engine import JobManager
+from proxy.research.memory import MemoryGuard
+from proxy.research.storage import ResearchStore
+from proxy.research.validators import SecurityValidator
+
+
+@pytest.fixture
+def job_manager(cfg, tmp_path):
+    sec = SecurityValidator()
+    store = ResearchStore(str(tmp_path / "research"), sec)
+    guard = MemoryGuard()
+    return JobManager(cfg, guard, store, "http://mock-discord:8001")
+
+
+@pytest.mark.asyncio
+async def test_job_manager_submit_returns_message(job_manager):
+    msg = await job_manager.submit("bitcoin ETF", "general")
+    assert "bitcoin ETF" in msg
+
+
+@pytest.mark.asyncio
+async def test_job_manager_queues_at_limit(job_manager, cfg):
+    cfg.research_max_concurrent = 1
+    await job_manager.submit("topic 1", "general")
+    msg = await job_manager.submit("topic 2", "general")
+    assert "queue" in msg.lower() or "line" in msg.lower()
