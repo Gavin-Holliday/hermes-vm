@@ -26,7 +26,7 @@ class MemoryGuard:
         self._monitor_task = None
 
     def start(self) -> None:
-        self._monitor_task = asyncio.ensure_future(self._monitor_loop())
+        self._monitor_task = asyncio.create_task(self._monitor_loop())
 
     def stop(self) -> None:
         if self._monitor_task:
