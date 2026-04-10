@@ -205,6 +205,15 @@ ALL_TOOL_SCHEMAS = [
         [],
     ),
     _schema(
+        "discord_dm",
+        "Send a direct message to a Discord server member by name or user ID.",
+        {
+            "user": {"type": "string", "description": "Member display name or user ID"},
+            "content": {"type": "string", "description": "Message to send (max 2000 chars)"},
+        },
+        ["user", "content"],
+    ),
+    _schema(
         "discord_gif",
         "Search for a GIF and post it to a Discord channel.",
         {
@@ -903,6 +912,17 @@ async def execute_discord_fetch_message(message_id: str, channel: str | None, co
         return f"[{m['timestamp'][:16]}] {m['author']} (id:{m['id']}): {m['content']}"
     except Exception as e:
         return f"Error fetching message: {e}"
+
+
+async def execute_discord_dm(user: str, content: str, config: "Config") -> str:
+    key = "user_id" if user.isdigit() else "user_name"
+    try:
+        data = await _discord_api("POST", "/dm", config, {key: user, "content": content})
+        if "error" in data:
+            return f"DM failed: {data['error']}"
+        return f"DM sent to {data.get('user', user)}"
+    except Exception as e:
+        return f"Error sending DM: {e}"
 
 
 async def execute_discord_gif(query: str, channel: str, config: "Config") -> str:
@@ -1710,6 +1730,8 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         return await execute_discord_delete(
             args.get("message_id"), args.get("count", 1), config
         )
+    if name == "discord_dm":
+        return await execute_discord_dm(args["user"], args["content"], config)
     if name == "discord_gif":
         return await execute_discord_gif(args["query"], args["channel"], config)
     if name == "discord_history":

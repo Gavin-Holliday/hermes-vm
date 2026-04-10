@@ -25,7 +25,7 @@ async def run_tool_loop(
         current_messages = list(messages)
         had_tool_calls = False
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             for _ in range(config.max_tool_rounds):
                 resp = await client.post(
                     f"{config.ollama_host}/api/chat",

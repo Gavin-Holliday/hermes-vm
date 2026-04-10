@@ -137,6 +137,32 @@ def make_handlers(
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def send_dm(request: web.Request) -> web.Response:
+        data = await request.json()
+        content = str(data.get("content", ""))[:2000]
+        user_id = data.get("user_id")
+        user_name = data.get("user_name", "").lower()
+        member = None
+        for guild in bot.guilds:
+            if user_id:
+                member = guild.get_member(int(user_id))
+            elif user_name:
+                member = discord.utils.find(
+                    lambda m: m.name.lower() == user_name or m.display_name.lower() == user_name,
+                    guild.members,
+                )
+            if member:
+                break
+        if member is None:
+            return web.json_response({"error": "user not found"}, status=404)
+        try:
+            await member.send(content)
+            return web.json_response({"ok": True, "user": member.display_name})
+        except discord.Forbidden:
+            return web.json_response({"error": "user has DMs disabled"}, status=403)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def channel_history(request: web.Request) -> web.Response:
         import datetime
         q = request.rel_url.query
@@ -294,6 +320,7 @@ def make_handlers(
         "GET  /message":   fetch_message,
         "POST /embed":     send_embed,
         "POST /remind":    schedule_remind,
+        "POST /dm":        send_dm,
     }
 
 

@@ -46,9 +46,9 @@ class Config:
         if self.rate_limit_per_min is None:
             self.rate_limit_per_min = int(os.getenv("RATE_LIMIT_PER_MIN", "5"))
         if self.max_tool_rounds is None:
-            self.max_tool_rounds = int(os.getenv("MAX_TOOL_ROUNDS", "10"))
+            self.max_tool_rounds = int(os.getenv("MAX_TOOL_ROUNDS", "15"))
         if self.tool_timeout_secs is None:
-            self.tool_timeout_secs = int(os.getenv("TOOL_TIMEOUT_SECS", "120"))
+            self.tool_timeout_secs = int(os.getenv("TOOL_TIMEOUT_SECS", "300"))
         if self.system_prompt is None:
             self.system_prompt = _load_system_prompt()
         if self.workspace_path is None:

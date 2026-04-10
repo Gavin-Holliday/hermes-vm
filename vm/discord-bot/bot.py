@@ -86,10 +86,15 @@ async def main() -> None:
         )
         if msg.author.bot:
             return
-        if msg.channel.id != cfg.channel_id:
+        # Accept messages in the main channel OR in threads that belong to it
+        parent_id = getattr(msg.channel, "parent_id", None)
+        in_main = msg.channel.id == cfg.channel_id
+        in_thread = parent_id == cfg.channel_id
+        if not in_main and not in_thread:
             log.info(
-                "Ignoring message: channel %d != expected %d",
+                "Ignoring message: channel %d (parent %s) != expected %d",
                 msg.channel.id,
+                parent_id,
                 cfg.channel_id,
             )
             return
