@@ -30,6 +30,18 @@ class Config:
     discord_bot_api_url: str = None
     tenor_api_key: str = None
     github_token: str = None
+    research_agent_model: str = None
+    research_orchestrator_model: str = None
+    research_max_rounds: int = None
+    research_timeout_mins: int = None
+    research_novelty_threshold: float = None
+    research_max_concurrent: int = None
+    research_memory_threshold_pct: int = None
+    research_memory_critical_pct: int = None
+    research_max_pdf_size_mb: int = None
+    research_min_sources: int = None
+    research_max_redirect_depth: int = None
+    research_data_path: str = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -65,6 +77,30 @@ class Config:
             self.tenor_api_key = os.getenv("TENOR_API_KEY", "")
         if self.github_token is None:
             self.github_token = os.getenv("GITHUB_TOKEN", "")
+        if self.research_agent_model is None:
+            self.research_agent_model = os.getenv("RESEARCH_AGENT_MODEL", "gemma4:e4b")
+        if self.research_orchestrator_model is None:
+            self.research_orchestrator_model = os.getenv("RESEARCH_ORCHESTRATOR_MODEL", "gemma4:26b")
+        if self.research_max_rounds is None:
+            self.research_max_rounds = int(os.getenv("RESEARCH_MAX_ROUNDS", "5"))
+        if self.research_timeout_mins is None:
+            self.research_timeout_mins = int(os.getenv("RESEARCH_TIMEOUT_MINS", "15"))
+        if self.research_novelty_threshold is None:
+            self.research_novelty_threshold = float(os.getenv("RESEARCH_NOVELTY_THRESHOLD", "0.20"))
+        if self.research_max_concurrent is None:
+            self.research_max_concurrent = int(os.getenv("RESEARCH_MAX_CONCURRENT", "2"))
+        if self.research_memory_threshold_pct is None:
+            self.research_memory_threshold_pct = int(os.getenv("RESEARCH_MEMORY_THRESHOLD_PCT", "20"))
+        if self.research_memory_critical_pct is None:
+            self.research_memory_critical_pct = int(os.getenv("RESEARCH_MEMORY_CRITICAL_PCT", "10"))
+        if self.research_max_pdf_size_mb is None:
+            self.research_max_pdf_size_mb = int(os.getenv("RESEARCH_MAX_PDF_SIZE_MB", "10"))
+        if self.research_min_sources is None:
+            self.research_min_sources = int(os.getenv("RESEARCH_MIN_SOURCES", "3"))
+        if self.research_max_redirect_depth is None:
+            self.research_max_redirect_depth = int(os.getenv("RESEARCH_MAX_REDIRECT_DEPTH", "3"))
+        if self.research_data_path is None:
+            self.research_data_path = os.getenv("RESEARCH_DATA_PATH", "/app/data/research")
 
 
 @lru_cache
