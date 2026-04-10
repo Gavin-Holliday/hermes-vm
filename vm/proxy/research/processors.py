@@ -99,3 +99,46 @@ class ContentProcessor:
 
     def sha256_hash(self, text: str) -> str:
         return hashlib.sha256(text.lower().encode()).hexdigest()
+
+
+import logging
+from io import BytesIO
+
+log = logging.getLogger("hermes.research.pdf")
+
+
+class PDFProcessor:
+    def __init__(self, security, clamav_socket: str = "/var/run/clamav/clamd.ctl"):
+        self._security = security
+        self._clamav_socket = clamav_socket
+
+    def process(self, content_bytes: bytes) -> "str | None":
+        if not self._security.enforce_size_limit(content_bytes, "application/pdf"):
+            log.warning("PDF rejected: exceeds size limit (%d bytes)", len(content_bytes))
+            return None
+        if not self._scan_clamav(content_bytes):
+            log.warning("PDF rejected: ClamAV detected threat")
+            return None
+        try:
+            import pdfplumber
+            with pdfplumber.open(BytesIO(content_bytes)) as pdf:
+                parts = [p.extract_text() or "" for p in pdf.pages]
+            text = "\n".join(parts).strip()
+            if not text:
+                log.info("PDF rejected: no text layer (scanned image PDF — see issue #1)")
+                return None
+            return text
+        except Exception as e:
+            log.warning("PDF extraction failed: %s", e)
+            return None
+
+    def _scan_clamav(self, content_bytes: bytes) -> bool:
+        try:
+            import clamd
+            cd = clamd.ClamdUnixSocket(self._clamav_socket)
+            result = cd.instream(BytesIO(content_bytes))
+            status = list(result.values())[0][0]
+            return status != "FOUND"
+        except Exception as e:
+            log.warning("ClamAV unavailable (%s) — skipping scan", e)
+            return True

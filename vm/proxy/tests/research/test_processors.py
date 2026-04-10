@@ -56,3 +56,45 @@ def test_dedup_returns_none_second_time(proc):
     second = proc.process(html, "bitcoin", "https://example.com")
     assert first is not None
     assert second is None
+
+
+from unittest.mock import MagicMock, patch
+from proxy.research.processors import PDFProcessor
+from proxy.research.validators import SecurityValidator
+
+
+@pytest.fixture
+def pdf_proc():
+    return PDFProcessor(SecurityValidator(max_pdf_size_mb=10))
+
+
+@patch("pdfplumber.open")
+def test_pdf_extracts_text(mock_open, pdf_proc):
+    mock_page = MagicMock()
+    mock_page.extract_text.return_value = "Bitcoin ETF approved by SEC in January 2024."
+    mock_pdf = MagicMock()
+    mock_pdf.pages = [mock_page]
+    mock_pdf.__enter__ = lambda s: mock_pdf
+    mock_pdf.__exit__ = MagicMock(return_value=False)
+    mock_open.return_value = mock_pdf
+    result = pdf_proc.process(b"%PDF fake content")
+    assert result is not None
+    assert "Bitcoin" in result
+
+
+@patch("pdfplumber.open")
+def test_pdf_returns_none_no_text(mock_open, pdf_proc):
+    mock_page = MagicMock()
+    mock_page.extract_text.return_value = ""
+    mock_pdf = MagicMock()
+    mock_pdf.pages = [mock_page]
+    mock_pdf.__enter__ = lambda s: mock_pdf
+    mock_pdf.__exit__ = MagicMock(return_value=False)
+    mock_open.return_value = mock_pdf
+    result = pdf_proc.process(b"%PDF fake")
+    assert result is None
+
+
+def test_pdf_too_large_rejected(pdf_proc):
+    big = b"x" * (11 * 1024 * 1024)
+    assert pdf_proc.process(big) is None
