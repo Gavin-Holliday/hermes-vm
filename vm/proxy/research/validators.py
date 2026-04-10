@@ -57,6 +57,10 @@ class SecurityValidator:
         limit = self._pdf_limit if base == "application/pdf" else _HTML_LIMIT
         return len(content_bytes) <= limit
 
+    def size_limit_for(self, content_type: str) -> int:
+        base = content_type.split(";")[0].strip().lower()
+        return self._pdf_limit if base == "application/pdf" else _HTML_LIMIT
+
 
 from dataclasses import dataclass
 import httpx
@@ -108,7 +112,7 @@ class SourceValidator:
                     return ValidationResult(False, reason=f"rejected content-type: {ct}")
                 cl = int(resp.headers.get("content-length", 0) or 0)
                 if cl > 0:
-                    limit = self._security._pdf_limit if "pdf" in ct else 2 * 1024 * 1024
+                    limit = self._security.size_limit_for(ct)
                     if cl > limit:
                         self._record_failure(url)
                         return ValidationResult(False, reason=f"too large: {cl} bytes")
