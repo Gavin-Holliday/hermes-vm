@@ -132,5 +132,8 @@ class KnowledgeBase:
     def contradicting_findings(self) -> list:
         return [f.text for f in self._store.all() if f.contradicts_topic]
 
+    def findings_count(self) -> int:
+        return len(self._store.all())
+
     def increment_round(self) -> None:
         self._round += 1

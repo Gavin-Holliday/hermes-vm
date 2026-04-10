@@ -256,7 +256,7 @@ class ResearchEngine:
             topic=self._topic,
             report_text=report.findings_text,
             sources=self._kb.all_sources(),
-            kb_snapshot={"findings_count": len(self._kb._store.all())},
+            kb_snapshot={"findings_count": self._kb.findings_count()},
             metadata={
                 "agent_model": self._config.research_agent_model,
                 "orchestrator_model": self._config.research_orchestrator_model,
