@@ -19,6 +19,7 @@ from api.server import BotApiServer
 from cogs.media import MediaCog
 from cogs.model import ModelCog
 from cogs.moderation import ModerationCog
+from cogs.research import ResearchCog
 from cogs.server import ServerCog
 
 load_dotenv()
@@ -65,6 +66,7 @@ async def main() -> None:
     await bot.add_cog(ModerationCog(bot, cfg, tracker))
     await bot.add_cog(ServerCog(bot, cfg, model_state, history, tracker))
     await bot.add_cog(MediaCog(bot, cfg))
+    await bot.add_cog(ResearchCog(bot, cfg))
 
     @bot.event
     async def on_ready() -> None:
