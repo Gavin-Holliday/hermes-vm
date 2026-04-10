@@ -72,6 +72,8 @@ async def main() -> None:
         for guild in bot.guilds:
             log.info("  Guild: %s — %d channels", guild.name, len(guild.channels))
         log.info("Watching channel_id=%d", cfg.channel_id)
+        await bot.tree.sync()
+        log.info("Slash commands synced")
 
     @bot.event
     async def on_message(msg: discord.Message) -> None:

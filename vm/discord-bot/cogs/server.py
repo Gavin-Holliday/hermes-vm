@@ -2,6 +2,7 @@
 import datetime
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import BotConfig
@@ -23,7 +24,7 @@ class ServerCog(commands.Cog):
         self.history = history
         self.tracker = tracker
 
-    @commands.command(name="status")
+    @commands.hybrid_command(name="status")
     async def show_status(self, ctx: commands.Context) -> None:
         """Show bot status: model, history size, server info, latency."""
         hist_len = len(self.history.get(ctx.channel.id))
@@ -36,16 +37,18 @@ class ServerCog(commands.Cog):
             f"**Latency:** {round(self.bot.latency * 1000)}ms"
         )
 
-    @commands.command(name="nick")
+    @commands.hybrid_command(name="nick")
+    @app_commands.describe(name="New nickname for the bot. Omit to reset to default.")
     async def change_nick(self, ctx: commands.Context, *, name: str = None) -> None:
-        """Set the bot's nickname. !nick with no argument resets it."""
+        """Set the bot's nickname. Omit to reset."""
         try:
             await ctx.guild.me.edit(nick=name)
             await ctx.message.add_reaction("✅")
         except discord.Forbidden:
             await ctx.send("Missing Manage Nicknames permission.")
 
-    @commands.command(name="thread")
+    @commands.hybrid_command(name="thread")
+    @app_commands.describe(name="Thread name. Defaults to current time if omitted.")
     async def create_thread(self, ctx: commands.Context, *, name: str = None) -> None:
         """Create a thread from the last bot reply."""
         target = self.tracker.last(ctx.channel.id)
@@ -61,9 +64,10 @@ class ServerCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"Thread creation failed: {e}")
 
-    @commands.command(name="event")
+    @commands.hybrid_command(name="event")
+    @app_commands.describe(args="name | description | YYYY-MM-DD HH:MM")
     async def create_event(self, ctx: commands.Context, *, args: str) -> None:
-        """Create a scheduled event. Usage: !event name | description | YYYY-MM-DD HH:MM"""
+        """Create a scheduled server event."""
         parts = [p.strip() for p in args.split("|")]
         name = parts[0]
         description = parts[1] if len(parts) > 1 else ""
@@ -96,7 +100,7 @@ class ServerCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"Event creation failed: {e}")
 
-    @commands.command(name="invite")
+    @commands.hybrid_command(name="invite")
     async def create_invite(self, ctx: commands.Context) -> None:
         """Create a 24-hour, 10-use invite link."""
         try:

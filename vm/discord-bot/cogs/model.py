@@ -1,4 +1,5 @@
 """ModelCog — sole responsibility: model selection commands."""
+from discord import app_commands
 from discord.ext import commands
 
 from config import BotConfig
@@ -21,9 +22,10 @@ class ModelCog(commands.Cog):
     def _channel_guard(self, ctx: commands.Context) -> bool:
         return ctx.channel.id == self.cfg.channel_id
 
-    @commands.command(name="model")
+    @commands.hybrid_command(name="model")
+    @app_commands.describe(name="Model name or alias to switch to. Omit to list available models.")
     async def switch_model(self, ctx: commands.Context, name: str = None) -> None:
-        """Show or change the active model. Usage: !model [name|alias]"""
+        """Show or change the active model."""
         if not self._channel_guard(ctx):
             return
 
@@ -56,7 +58,7 @@ class ModelCog(commands.Cog):
         note = f" (alias `{name}`)" if resolved != name else ""
         await ctx.send(f"Switched `{old}` → `{resolved}`. History cleared.{note}")
 
-    @commands.command(name="clear")
+    @commands.hybrid_command(name="clear")
     async def clear_history(self, ctx: commands.Context) -> None:
         """Reset conversation history for this channel."""
         if not self._channel_guard(ctx):

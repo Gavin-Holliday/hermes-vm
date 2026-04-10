@@ -1,5 +1,6 @@
 """ModerationCog — sole responsibility: message moderation commands."""
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import BotConfig
@@ -17,7 +18,7 @@ class ModerationCog(commands.Cog):
         self.cfg = cfg
         self.tracker = tracker
 
-    @commands.command(name="pin")
+    @commands.hybrid_command(name="pin")
     async def pin_message(self, ctx: commands.Context) -> None:
         """Pin the last bot reply, or the message you're replying to."""
         if ctx.message.reference:
@@ -35,7 +36,8 @@ class ModerationCog(commands.Cog):
         except discord.HTTPException as e:
             await ctx.send(f"Pin failed: {e}")
 
-    @commands.command(name="unpin")
+    @commands.hybrid_command(name="unpin")
+    @app_commands.describe(message_id="ID of the message to unpin. Omit to unpin the most recent pin.")
     async def unpin_message(self, ctx: commands.Context, message_id: int = None) -> None:
         """Unpin by message ID, or the most recent pin."""
         try:
@@ -54,9 +56,10 @@ class ModerationCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"Unpin failed: {e}")
 
-    @commands.command(name="delete")
+    @commands.hybrid_command(name="delete")
+    @app_commands.describe(n="Number of recent bot messages to delete (default: 1).")
     async def delete_messages(self, ctx: commands.Context, n: int = 1) -> None:
-        """Delete the last n bot messages. Default: 1."""
+        """Delete the last N bot messages (default: 1)."""
         removed = self.tracker.pop_recent(ctx.channel.id, n)
         for msg in removed:
             try:

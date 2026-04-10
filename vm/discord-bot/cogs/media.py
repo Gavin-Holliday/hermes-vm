@@ -5,6 +5,7 @@ import io
 import tempfile
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import BotConfig
@@ -17,7 +18,8 @@ class MediaCog(commands.Cog):
 
     # ── Discord built-in TTS ───────────────────────────────────────────────────
 
-    @commands.command(name="tts")
+    @commands.hybrid_command(name="tts")
+    @app_commands.describe(text="Text to read aloud via Discord's built-in TTS.")
     async def send_tts(self, ctx: commands.Context, *, text: str) -> None:
         """Read text aloud via Discord's built-in TTS."""
         try:
@@ -28,13 +30,10 @@ class MediaCog(commands.Cog):
 
     # ── AI voice via Ollama (gemma4:e4b supports audio modalities) ────────────
 
-    @commands.command(name="speak")
+    @commands.hybrid_command(name="speak")
+    @app_commands.describe(text="Text to speak aloud in voice channel")
     async def speak(self, ctx: commands.Context, *, text: str = None) -> None:
-        """
-        Synthesize speech via gemma4:e4b and play it in your voice channel.
-        Usage: !speak [text]  — omit text to speak the last bot reply.
-        Requires you to be in a voice channel.
-        """
+        """Synthesize speech via AI and play it in your voice channel."""
         if ctx.author.voice is None:
             await ctx.send("You need to be in a voice channel.")
             return
@@ -71,12 +70,10 @@ class MediaCog(commands.Cog):
 
     # ── Polls ──────────────────────────────────────────────────────────────────
 
-    @commands.command(name="poll")
+    @commands.hybrid_command(name="poll")
+    @app_commands.describe(args="question | option1 | option2 | ...")
     async def create_poll(self, ctx: commands.Context, *, args: str) -> None:
-        """
-        Create a native Discord poll (24h).
-        Usage: !poll question | option 1 | option 2 [| option 3 ...]
-        """
+        """Create a native Discord poll lasting 24 hours."""
         parts = [p.strip() for p in args.split("|")]
         if len(parts) < 3:
             await ctx.send(
