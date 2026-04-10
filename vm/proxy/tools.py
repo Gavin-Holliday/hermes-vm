@@ -408,6 +408,28 @@ ALL_TOOL_SCHEMAS = [
         },
         ["slug"],
     ),
+    _schema(
+        "deep_research",
+        "Start comprehensive multi-round research on a topic. Runs in background, posts a cited Discord embed report when complete. Use for questions needing thorough sourcing rather than a quick web search.",
+        {
+            "topic": {"type": "string", "description": "Research topic or question"},
+            "channel": {"type": "string", "description": "Discord channel name to post results to"},
+            "researcher_model": {"type": "string", "description": "Override agent model (optional)"},
+            "orchestrator_model": {"type": "string", "description": "Override orchestrator model (optional)"},
+            "max_rounds": {"type": "integer", "description": "Override max research rounds (optional)"},
+        },
+        ["topic", "channel"],
+    ),
+    _schema(
+        "deepdive",
+        "Deep dive into a previously researched topic or specific URLs for more detailed analysis. Use after deep_research to go deeper on a specific aspect.",
+        {
+            "topic": {"type": "string", "description": "Topic title from a saved research report"},
+            "channel": {"type": "string", "description": "Discord channel name to post results to"},
+            "urls": {"type": "array", "items": {"type": "string"}, "description": "Optional seed URLs"},
+        },
+        ["topic", "channel"],
+    ),
 ]
 
 # Backwards compat alias used in tests / old imports
@@ -1671,6 +1693,52 @@ async def execute_polymarket_market(slug: str) -> str:
         return f"Error fetching market '{slug}': {e}"
 
 
+# ── Research executors ─────────────────────────────────────────────────────────
+
+_job_manager = None
+
+
+def _get_job_manager(config: "Config"):
+    global _job_manager
+    if _job_manager is None:
+        from proxy.research.validators import SecurityValidator
+        from proxy.research.storage import ResearchStore
+        from proxy.research.memory import MemoryGuard
+        from proxy.research.engine import JobManager
+        security = SecurityValidator(config.research_max_pdf_size_mb)
+        store = ResearchStore(config.research_data_path, security)
+        guard = MemoryGuard(
+            config.research_memory_threshold_pct,
+            config.research_memory_critical_pct,
+            config.ollama_host,
+        )
+        guard.start()
+        _job_manager = JobManager(config, guard, store, config.discord_bot_api_url)
+    return _job_manager
+
+
+async def execute_deep_research(topic: str, channel: str, config: "Config",
+                                 researcher_model=None,
+                                 orchestrator_model=None,
+                                 max_rounds=None) -> str:
+    from proxy.research.validators import SecurityValidator
+    sv = SecurityValidator(config.research_max_pdf_size_mb)
+    if sv.scan_prompt_injection(topic):
+        return "Research topic rejected: potential prompt injection detected."
+    jm = _get_job_manager(config)
+    return await jm.submit(topic, channel, mode="research")
+
+
+async def execute_deepdive(topic: str, channel: str, config: "Config",
+                            urls=None) -> str:
+    from proxy.research.validators import SecurityValidator
+    sv = SecurityValidator(config.research_max_pdf_size_mb)
+    if sv.scan_prompt_injection(topic):
+        return "Research topic rejected: potential prompt injection detected."
+    jm = _get_job_manager(config)
+    return await jm.submit(topic, channel, mode="deepdive", seed_urls=urls or [])
+
+
 # ── Dispatcher ─────────────────────────────────────────────────────────────────
 
 
@@ -1785,4 +1853,13 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         return await execute_polymarket_markets(args.get("query"), args.get("limit", 10))
     if name == "polymarket_market":
         return await execute_polymarket_market(args["slug"])
+    if name == "deep_research":
+        return await execute_deep_research(
+            args["topic"], args["channel"], config,
+            args.get("researcher_model"), args.get("orchestrator_model"), args.get("max_rounds"),
+        )
+    if name == "deepdive":
+        return await execute_deepdive(
+            args["topic"], args["channel"], config, args.get("urls"),
+        )
     return f"Unknown tool: {name}"
