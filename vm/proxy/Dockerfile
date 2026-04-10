@@ -1,6 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc python3-dev \
     clamav clamav-daemon \
     && rm -rf /var/lib/apt/lists/* \
     && freshclam --quiet || true
