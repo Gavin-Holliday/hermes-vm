@@ -12,6 +12,7 @@ from proxy.filters import check_jailbreak, check_architecture
 from proxy.rate_limit import TokenBucket
 from proxy.tool_loop import run_tool_loop
 from proxy.streaming import stream_from_ollama
+from proxy.tools import execute_deep_research, execute_deepdive
 
 
 def create_app(config: Config | None = None) -> FastAPI:
@@ -91,6 +92,23 @@ def create_app(config: Config | None = None) -> FastAPI:
             stream_from_ollama(cfg.ollama_host, full_path, body),
             media_type="application/x-ndjson",
         )
+
+    @app.post("/research")
+    async def start_research(request: Request):
+        body = await request.json()
+        result = await execute_deep_research(
+            body["topic"], body["channel"], cfg,
+            body.get("researcher_model"), body.get("orchestrator_model"), body.get("max_rounds"),
+        )
+        return {"message": result}
+
+    @app.post("/deepdive")
+    async def start_deepdive(request: Request):
+        body = await request.json()
+        result = await execute_deepdive(
+            body["topic"], body["channel"], cfg, body.get("urls"),
+        )
+        return {"message": result}
 
     return app
 
