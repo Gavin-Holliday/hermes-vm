@@ -1721,12 +1721,20 @@ async def execute_deep_research(topic: str, channel: str, config: "Config",
                                  researcher_model=None,
                                  orchestrator_model=None,
                                  max_rounds=None) -> str:
+    from proxy.research.validators import SecurityValidator
+    sv = SecurityValidator(config.research_max_pdf_size_mb)
+    if sv.scan_prompt_injection(topic):
+        return "Research topic rejected: potential prompt injection detected."
     jm = _get_job_manager(config)
     return await jm.submit(topic, channel, mode="research")
 
 
 async def execute_deepdive(topic: str, channel: str, config: "Config",
                             urls=None) -> str:
+    from proxy.research.validators import SecurityValidator
+    sv = SecurityValidator(config.research_max_pdf_size_mb)
+    if sv.scan_prompt_injection(topic):
+        return "Research topic rejected: potential prompt injection detected."
     jm = _get_job_manager(config)
     return await jm.submit(topic, channel, mode="deepdive", seed_urls=urls or [])
 

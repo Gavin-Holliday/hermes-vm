@@ -13,6 +13,17 @@ from proxy.research.processors import ContentProcessor
 
 log = logging.getLogger("hermes.research.engine")
 
+async def ollama_call(ollama_host: str, model: str, messages: list) -> str:
+    """Module-level Ollama chat helper shared by agents and orchestrator."""
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{ollama_host}/api/chat",
+            json={"model": model, "messages": messages, "stream": False},
+        )
+        resp.raise_for_status()
+        return resp.json()["message"]["content"]
+
+
 AGENT_SYSTEM_PROMPT = """You are a research agent. Given a search query and web content, extract findings.
 
 You MUST respond with valid JSON matching this exact schema:
@@ -146,13 +157,7 @@ class ResearchAgent:
         return result.strip() or query
 
     async def _ollama_call(self, model: str, messages: list) -> str:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{self._config.ollama_host}/api/chat",
-                json={"model": model, "messages": messages, "stream": False},
-            )
-            resp.raise_for_status()
-            return resp.json()["message"]["content"]
+        return await ollama_call(self._config.ollama_host, model, messages)
 
 
 from proxy.research.knowledge import KnowledgeBase
@@ -277,7 +282,7 @@ class ResearchEngine:
                 f"Topic: {self._topic}\nCoverage: {self._kb.coverage_score():.0%}\n\n{summary}"
             )},
         ]
-        raw = await self._agent._ollama_call(self._config.research_orchestrator_model, messages)
+        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages)
         try:
             return json.loads(raw)
         except Exception:
@@ -341,6 +346,19 @@ class JobManager:
     async def _run_job(self, job_id: str, engine: ResearchEngine) -> None:
         try:
             await engine.run()
+        except Exception as exc:
+            log.error("Research job %s failed: %s", job_id, exc)
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    await client.post(
+                        f"{self._discord_api_url}/send",
+                        json={
+                            "channel_name": engine._channel,
+                            "content": f"Research on '{engine._topic}' failed: {exc}",
+                        },
+                    )
+            except Exception:
+                pass
         finally:
             self._active.pop(job_id, None)
             if not self._active:

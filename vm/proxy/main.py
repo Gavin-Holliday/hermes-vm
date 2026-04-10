@@ -95,19 +95,31 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     @app.post("/research")
     async def start_research(request: Request):
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        topic = body.get("topic", "").strip()
+        channel = body.get("channel", "").strip()
+        if not topic or not channel:
+            return JSONResponse({"error": "topic and channel are required"}, status_code=400)
         result = await execute_deep_research(
-            body["topic"], body["channel"], cfg,
+            topic, channel, cfg,
             body.get("researcher_model"), body.get("orchestrator_model"), body.get("max_rounds"),
         )
         return {"message": result}
 
     @app.post("/deepdive")
     async def start_deepdive(request: Request):
-        body = await request.json()
-        result = await execute_deepdive(
-            body["topic"], body["channel"], cfg, body.get("urls"),
-        )
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
+        topic = body.get("topic", "").strip()
+        channel = body.get("channel", "").strip()
+        if not topic or not channel:
+            return JSONResponse({"error": "topic and channel are required"}, status_code=400)
+        result = await execute_deepdive(topic, channel, cfg, body.get("urls"))
         return {"message": result}
 
     return app

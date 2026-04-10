@@ -32,10 +32,14 @@ class ResearchCog(commands.Cog):
             payload["orchestrator_model"] = orchestrator_model
         if max_rounds:
             payload["max_rounds"] = max_rounds
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self._cfg.proxy_url}/research", json=payload) as resp:
-                data = await resp.json()
-        await ctx.send(data.get("message", "Research started."))
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(f"{self._cfg.proxy_url}/research", json=payload) as resp:
+                    data = await resp.json()
+            await ctx.send(data.get("message", "Research started."))
+        except Exception as exc:
+            await ctx.send(f"Failed to start research: {exc}")
 
     @commands.hybrid_command(name="deepdive", description="Deep dive into a topic or specific URLs")
     @app_commands.describe(
@@ -52,7 +56,11 @@ class ResearchCog(commands.Cog):
         payload = {"topic": topic, "channel": channel_name}
         if url:
             payload["urls"] = [url]
-        async with aiohttp.ClientSession() as session:
-            async with session.post(f"{self._cfg.proxy_url}/deepdive", json=payload) as resp:
-                data = await resp.json()
-        await ctx.send(data.get("message", "Deep dive started."))
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(f"{self._cfg.proxy_url}/deepdive", json=payload) as resp:
+                    data = await resp.json()
+            await ctx.send(data.get("message", "Deep dive started."))
+        except Exception as exc:
+            await ctx.send(f"Failed to start deep dive: {exc}")
