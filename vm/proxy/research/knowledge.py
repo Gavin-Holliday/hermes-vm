@@ -129,5 +129,8 @@ class KnowledgeBase:
     def validated_urls(self) -> set:
         return set(self._source_urls)
 
+    def contradicting_findings(self) -> list:
+        return [f.text for f in self._store.all() if f.contradicts_topic]
+
     def increment_round(self) -> None:
         self._round += 1

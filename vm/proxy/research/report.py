@@ -53,7 +53,7 @@ class ReportBuilder:
 
         # Reviewer pass
         approved, issues = await self._ollama_review(report_text)
-        if not approved and issues:
+        if not approved:
             report_text = await self._ollama_revise(report_text, issues)
 
         # Extract summary (first sentence) and findings
@@ -122,7 +122,7 @@ class ReportBuilder:
         return embeds
 
     def _extract_contradictions(self, kb) -> str:
-        contradicting = [f.text for f in kb._store.all() if f.contradicts_topic]
+        contradicting = kb.contradicting_findings()
         if not contradicting:
             return ""
         return "\n".join(f"• {t}" for t in contradicting[:5])
