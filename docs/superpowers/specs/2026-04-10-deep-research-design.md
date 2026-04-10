@@ -466,7 +466,7 @@ docs/superpowers/specs/
 - **OCR support for scanned PDFs**: add `tesseract` + `pytesseract` to extract text from
   image-based PDFs. Currently these are discarded with a logged reason.
   To be tracked in GitHub issue: "feat: OCR support for scanned PDFs in deep research"
-  (issue number TBD — will be created on initial commit)
+  Tracked in: Gavin-Holliday/hermes-vm#1
 
 ---
 
