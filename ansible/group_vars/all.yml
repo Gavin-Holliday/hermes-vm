@@ -22,6 +22,9 @@ allowed_models: "{{ lookup('env', 'ALLOWED_MODELS') | default('hermes3') }}"
 discord_token: "{{ lookup('env', 'DISCORD_TOKEN') }}"
 discord_channel_id: "{{ lookup('env', 'DISCORD_CHANNEL_ID') }}"
 
+# GitHub
+github_token: "{{ lookup('env', 'GITHUB_TOKEN') | default('') }}"
+
 # Proxy tuning
 rate_limit_burst: "{{ lookup('env', 'RATE_LIMIT_BURST') | default('20') }}"
 rate_limit_per_min: "{{ lookup('env', 'RATE_LIMIT_PER_MIN') | default('5') }}"

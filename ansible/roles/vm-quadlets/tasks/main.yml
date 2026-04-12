@@ -54,6 +54,7 @@
       TOOL_TIMEOUT_SECS={{ tool_timeout_secs }}
       DISCORD_TOKEN={{ discord_token }}
       DISCORD_CHANNEL_ID={{ discord_channel_id }}
+      GITHUB_TOKEN={{ github_token }}
       RESEARCH_OLLAMA_PARALLEL={{ ollama_num_parallel }}
     dest: /etc/containers/systemd/hermes.env
     mode: "0600"
