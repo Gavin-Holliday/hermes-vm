@@ -267,12 +267,15 @@ class ResearchEngine:
 
             coverage = self._kb.coverage_score()
             novelty = self._kb.novelty_rate()
+            await self._post_progress(
+                f"Round {round_num} complete — {len(valid)} agents returned findings, "
+                f"{coverage:.0%} coverage. Identifying gaps..."
+            )
             import psutil
             mem = psutil.virtual_memory()
             await self._post_progress(
-                f"Round {round_num} complete — {len(valid)} agents returned findings, "
-                f"{coverage:.0%} coverage · RAM {mem.percent:.0f}% used "
-                f"({mem.available // (1024**3):.1f}GB free). Identifying gaps..."
+                f"RAM {mem.percent:.0f}% used ({mem.available // (1024**3):.1f}GB free)",
+                min_verbosity="verbose",
             )
 
             if novelty < self._config.research_novelty_threshold and round_num > 1:
