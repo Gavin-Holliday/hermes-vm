@@ -9,9 +9,19 @@ def _load_system_prompt() -> str:
     path = os.getenv("SYSTEM_PROMPT_FILE", "/app/system_prompt.txt")
     try:
         with open(path) as f:
-            return f.read().strip()
+            text = f.read().strip()
     except FileNotFoundError:
-        return "You are Hermes, a helpful assistant."
+        text = "You are Hermes, a helpful assistant."
+    github_owner = os.getenv("GHCR_OWNER", "")
+    if github_owner:
+        text = text.replace("{{GITHUB_OWNER}}", github_owner)
+    else:
+        # Strip the line entirely if no owner is configured
+        text = "\n".join(
+            line for line in text.splitlines()
+            if "{{GITHUB_OWNER}}" not in line
+        )
+    return text
 
 
 @dataclass
