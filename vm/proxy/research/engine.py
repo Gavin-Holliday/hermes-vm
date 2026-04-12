@@ -26,21 +26,23 @@ def _strip_json_fences(text: str) -> str:
 
 async def ollama_call(ollama_host: str, model: str, messages: list,
                       sem: "asyncio.Semaphore | None" = None,
-                      fmt: "str | None" = None) -> str:
+                      fmt: "str | None" = None,
+                      timeout: float = 120.0) -> str:
     """Module-level Ollama chat helper shared by agents and orchestrator.
 
     Pass sem to serialize concurrent callers — Ollama runs one inference at a
     time, so parallel agents must queue rather than all timing out together.
-    The semaphore is acquired before opening the connection so the 120s timeout
+    The semaphore is acquired before opening the connection so the timeout
     only starts once Ollama is actually free.
     Pass fmt="json" to engage Ollama's JSON mode and avoid markdown-wrapped output.
+    Pass timeout to override the default 120s (use higher values for large models).
     """
     payload: dict = {"model": model, "messages": messages, "stream": False}
     if fmt:
         payload["format"] = fmt
 
     async def _call() -> str:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(f"{ollama_host}/api/chat", json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]
@@ -332,7 +334,7 @@ class ResearchEngine:
                 f"Topic: {self._topic}\nCoverage: {self._kb.coverage_score():.0%}\n\n{summary}"
             )},
         ]
-        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages, self._ollama_sem, fmt="json")
+        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages, self._ollama_sem, fmt="json", timeout=300.0)
         try:
             return json.loads(_strip_json_fences(raw))
         except Exception:
