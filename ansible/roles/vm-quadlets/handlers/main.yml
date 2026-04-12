@@ -10,9 +10,5 @@
     state: restarted
     enabled: true
   become: true
-  loop:
-    - hermes-proxy
-    - hermes-webui
-    - hermes-searxng
-    - hermes-discord
+  loop: "{{ ['hermes-proxy', 'hermes-searxng', 'hermes-discord'] + (['hermes-webui'] if enable_webui else []) }}"
   ignore_errors: true
