@@ -188,7 +188,7 @@ class ResearchAgent:
         return result.strip() or query
 
     async def _ollama_call(self, model: str, messages: list, fmt: str = None) -> str:
-        return await ollama_call(self._config.ollama_host, model, messages, self._ollama_sem, fmt)
+        return await ollama_call(self._config.ollama_host, model, messages, self._ollama_sem, fmt, timeout=240.0)
 
 
 from proxy.research.knowledge import KnowledgeBase

@@ -104,7 +104,7 @@ class Config:
         if self.research_data_path is None:
             self.research_data_path = os.getenv("RESEARCH_DATA_PATH", "/app/data/research")
         if self.research_ollama_parallel is None:
-            self.research_ollama_parallel = int(os.getenv("RESEARCH_OLLAMA_PARALLEL", "5"))
+            self.research_ollama_parallel = int(os.getenv("RESEARCH_OLLAMA_PARALLEL", "3"))
         if self.research_report_channel is None:
             self.research_report_channel = os.getenv("RESEARCH_REPORT_CHANNEL", "")
 
