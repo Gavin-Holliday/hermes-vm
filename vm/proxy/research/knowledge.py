@@ -105,7 +105,7 @@ class KnowledgeBase:
             return 1.0
         return self._round_added / self._round_total
 
-    def compact_summary(self, max_tokens: int = 4000) -> str:
+    def compact_summary(self, max_tokens: int = 2000) -> str:
         max_chars = max_tokens * 4
         findings = self._store.by_relevance()
         lines = [

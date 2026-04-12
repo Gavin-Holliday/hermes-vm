@@ -92,7 +92,7 @@ class Config:
         if self.research_agent_model is None:
             self.research_agent_model = os.getenv("RESEARCH_AGENT_MODEL", "gemma4:e4b")
         if self.research_orchestrator_model is None:
-            self.research_orchestrator_model = os.getenv("RESEARCH_ORCHESTRATOR_MODEL", "gemma4:26b")
+            self.research_orchestrator_model = os.getenv("RESEARCH_ORCHESTRATOR_MODEL", "gemma4:e4b")
         if self.research_max_rounds is None:
             self.research_max_rounds = int(os.getenv("RESEARCH_MAX_ROUNDS", "5"))
         if self.research_timeout_mins is None:
