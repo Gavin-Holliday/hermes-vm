@@ -42,6 +42,7 @@ class Config:
     research_min_sources: int = None
     research_max_redirect_depth: int = None
     research_data_path: str = None
+    research_ollama_parallel: int = None
 
     def __post_init__(self):
         if self.ollama_host is None:
@@ -101,6 +102,8 @@ class Config:
             self.research_max_redirect_depth = int(os.getenv("RESEARCH_MAX_REDIRECT_DEPTH", "3"))
         if self.research_data_path is None:
             self.research_data_path = os.getenv("RESEARCH_DATA_PATH", "/app/data/research")
+        if self.research_ollama_parallel is None:
+            self.research_ollama_parallel = int(os.getenv("RESEARCH_OLLAMA_PARALLEL", "5"))
 
 
 @lru_cache

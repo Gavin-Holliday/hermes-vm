@@ -28,4 +28,5 @@ def cfg(tmp_path) -> Config:
         research_min_sources=3,
         research_max_redirect_depth=3,
         research_data_path=str(tmp_path / "research"),
+        research_ollama_parallel=5,
     )

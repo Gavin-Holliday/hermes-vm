@@ -23,7 +23,7 @@ async def ollama_call(ollama_host: str, model: str, messages: list,
     only starts once Ollama is actually free.
     """
     async def _call() -> str:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
                 f"{ollama_host}/api/chat",
                 json={"model": model, "messages": messages, "stream": False},
@@ -205,8 +205,8 @@ class ResearchEngine:
         self._source_val = SourceValidator(self._security, config.research_max_redirect_depth)
         self._processor = ContentProcessor()
         self._output_val = OutputValidator()
-        # Serialize all Ollama calls — the model runs one inference at a time
-        self._ollama_sem = asyncio.Semaphore(1)
+        # Limit concurrent Ollama calls to match OLLAMA_NUM_PARALLEL on the host
+        self._ollama_sem = asyncio.Semaphore(config.research_ollama_parallel)
         self._agent = ResearchAgent(config, self._security, self._source_val,
                                     self._processor, self._output_val, self._ollama_sem)
         self._builder = ReportBuilder(config, self._ollama_sem)
