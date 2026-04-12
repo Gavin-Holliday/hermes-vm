@@ -155,6 +155,14 @@ class OutputValidator:
         for c in raw.get("citations", []):
             if not _CITATION_KEYS.issubset(c.keys()):
                 return None
+        # Flatten findings in case model returned nested lists, coerce all to str
+        findings = []
+        for f in raw.get("findings", []):
+            if isinstance(f, list):
+                findings.extend(str(x) for x in f if x)
+            elif f:
+                findings.append(str(f))
+        raw = {**raw, "findings": findings}
         return ResearcherOutput(**{k: raw[k] for k in _REQUIRED_KEYS})
 
 
