@@ -15,12 +15,7 @@
     dest: "/tmp/hermes-quadlets/{{ item }}"
     mode: "0644"
   delegate_to: localhost
-  loop:
-    - hermes.network
-    - hermes-proxy.container
-    - hermes-webui.container
-    - hermes-searxng.container
-    - hermes-discord.container
+  loop: "{{ ['hermes.network', 'hermes-proxy.container', 'hermes-searxng.container', 'hermes-discord.container'] + (['hermes-webui.container'] if enable_webui else []) }}"
 
 - name: Ensure /etc/containers/systemd exists in VM
   ansible.builtin.file:
@@ -35,12 +30,15 @@
     dest: "/etc/containers/systemd/{{ item }}"
     mode: "0644"
   become: true
-  loop:
-    - hermes.network
-    - hermes-proxy.container
-    - hermes-webui.container
-    - hermes-searxng.container
-    - hermes-discord.container
+  loop: "{{ ['hermes.network', 'hermes-proxy.container', 'hermes-searxng.container', 'hermes-discord.container'] + (['hermes-webui.container'] if enable_webui else []) }}"
+  notify: reload systemd daemon
+
+- name: Remove webui quadlet if disabled
+  ansible.builtin.file:
+    path: /etc/containers/systemd/hermes-webui.container
+    state: absent
+  become: true
+  when: not enable_webui
   notify: reload systemd daemon
 
 - name: Write hermes.env into VM

@@ -9,10 +9,13 @@ ollama_num_parallel: "{{ lookup('env', 'OLLAMA_NUM_PARALLEL') | default('5') }}"
 # Research
 research_report_channel: "{{ lookup('env', 'RESEARCH_REPORT_CHANNEL') | default('') }}"
 
+# Optional features
+enable_webui: false   # Set true to deploy Open WebUI (+1 GB VM memory)
+
 # Podman machine
 podman_machine_name: "hermes-machine"
 podman_machine_cpus: 4
-podman_machine_memory_mb: 6144
+podman_machine_memory_mb: "{{ 2048 + (1024 if enable_webui else 0) }}"
 podman_machine_disk_gb: 40
 
 # Container image registry
