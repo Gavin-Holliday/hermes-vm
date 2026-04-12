@@ -4,6 +4,7 @@
 # Ollama
 ollama_host: "0.0.0.0"
 ollama_port: 11434
+ollama_num_parallel: "{{ lookup('env', 'OLLAMA_NUM_PARALLEL') | default('5') }}"
 
 # Podman machine
 podman_machine_name: "hermes-machine"
