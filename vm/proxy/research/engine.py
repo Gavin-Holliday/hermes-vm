@@ -204,11 +204,13 @@ Set satisfied=true only when you have comprehensive coverage of the topic."""
 class ResearchEngine:
     def __init__(self, job_id: str, topic: str, channel: str, config,
                  memory_guard: MemoryGuard, store: ResearchStore,
-                 discord_api_url: str, mode: str = "research"):
+                 discord_api_url: str, mode: str = "research",
+                 verbosity: str = "normal"):
         self.job_id = job_id
         self._topic = topic
         self._channel = channel
         self._report_channel = config.research_report_channel or channel
+        self._verbosity = verbosity  # "silent" | "normal" | "verbose"
         self._config = config
         self._memory_guard = memory_guard
         self._store = store
@@ -252,6 +254,16 @@ class ResearchEngine:
             valid = [o for o in outputs if o is not None]
             self._kb.ingest(valid)
             self._kb.increment_round()
+
+            if self._verbosity == "verbose":
+                for q, out in zip(queries, outputs):
+                    if out:
+                        await self._post_progress(
+                            f"  `{q}` → {len(out.findings)} findings (relevance {out.relevance_score:.0%})",
+                            min_verbosity="verbose",
+                        )
+                    else:
+                        await self._post_progress(f"  `{q}` → no findings", min_verbosity="verbose")
 
             coverage = self._kb.coverage_score()
             novelty = self._kb.novelty_rate()
@@ -323,7 +335,11 @@ class ResearchEngine:
         except Exception:
             return {"satisfied": False, "new_queries": [], "reasoning": "parse error"}
 
-    async def _post_progress(self, message: str) -> None:
+    async def _post_progress(self, message: str, min_verbosity: str = "normal") -> None:
+        if self._verbosity == "silent":
+            return
+        if min_verbosity == "verbose" and self._verbosity != "verbose":
+            return
         text = f"[Research: '{self._topic}'] {message}"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -356,20 +372,21 @@ class JobManager:
         self._queue: list = []
 
     async def submit(self, topic: str, channel: str, mode: str = "research",
-                     seed_urls: list = None) -> str:
+                     seed_urls: list = None, verbosity: str = "normal") -> str:
         job_id = str(uuid.uuid4())[:8]
         if len(self._active) < self._config.research_max_concurrent:
-            await self._start_job(job_id, topic, channel, mode)
+            await self._start_job(job_id, topic, channel, mode, verbosity)
             return f"Research started on '{topic}' (job {job_id})"
         else:
-            self._queue.append((job_id, topic, channel, mode))
+            self._queue.append((job_id, topic, channel, mode, verbosity))
             return f"Research queued (#{len(self._queue)} in line) — '{topic}'"
 
-    async def _start_job(self, job_id: str, topic: str, channel: str, mode: str) -> None:
+    async def _start_job(self, job_id: str, topic: str, channel: str, mode: str,
+                         verbosity: str = "normal") -> None:
         engine = ResearchEngine(
             job_id, topic, channel, self._config,
             self._memory_guard, self._store,
-            self._discord_api_url, mode,
+            self._discord_api_url, mode, verbosity,
         )
         self._active[job_id] = engine
         self._memory_guard.set_research_active({

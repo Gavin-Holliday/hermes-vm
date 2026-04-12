@@ -1720,13 +1720,14 @@ def _get_job_manager(config: "Config"):
 async def execute_deep_research(topic: str, channel: str, config: "Config",
                                  researcher_model=None,
                                  orchestrator_model=None,
-                                 max_rounds=None) -> str:
+                                 max_rounds=None,
+                                 verbosity: str = "normal") -> str:
     from proxy.research.validators import SecurityValidator
     sv = SecurityValidator(config.research_max_pdf_size_mb)
     if sv.scan_prompt_injection(topic):
         return "Research topic rejected: potential prompt injection detected."
     jm = _get_job_manager(config)
-    return await jm.submit(topic, channel, mode="research")
+    return await jm.submit(topic, channel, mode="research", verbosity=verbosity)
 
 
 async def execute_deepdive(topic: str, channel: str, config: "Config",

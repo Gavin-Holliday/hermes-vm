@@ -106,6 +106,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         result = await execute_deep_research(
             topic, channel, cfg,
             body.get("researcher_model"), body.get("orchestrator_model"), body.get("max_rounds"),
+            body.get("verbosity", "normal"),
         )
         return {"message": result}
 

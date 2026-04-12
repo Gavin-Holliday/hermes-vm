@@ -18,14 +18,19 @@ class ResearchCog(commands.Cog):
         orchestrator_model="Orchestrator model override (default: gemma4:26b)",
         max_rounds="Max research rounds override",
         timeout_mins="Timeout in minutes override",
+        verbosity="Progress detail: normal (default), verbose (per-query detail), silent (report only)",
     )
     async def research(self, ctx: commands.Context, *, topic: str,
                        researcher_model: str = None,
                        orchestrator_model: str = None,
                        max_rounds: int = None,
-                       timeout_mins: int = None):
+                       timeout_mins: int = None,
+                       verbosity: str = "normal"):
+        if verbosity not in ("normal", "verbose", "silent"):
+            await ctx.send("verbosity must be `normal`, `verbose`, or `silent`")
+            return
         channel_name = getattr(ctx.channel, "name", "general")
-        payload = {"topic": topic, "channel": channel_name}
+        payload = {"topic": topic, "channel": channel_name, "verbosity": verbosity}
         if researcher_model:
             payload["researcher_model"] = researcher_model
         if orchestrator_model:
