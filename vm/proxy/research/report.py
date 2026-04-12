@@ -40,9 +40,10 @@ class ReportValidator:
 
 
 class ReportBuilder:
-    def __init__(self, config):
+    def __init__(self, config, ollama_sem=None):
         self._config = config
         self._validator = ReportValidator()
+        self._ollama_sem = ollama_sem
 
     async def build(self, topic: str, kb, rounds: int, duration_secs: float) -> ResearchReport:
         summary_text = kb.compact_summary()
@@ -162,14 +163,10 @@ class ReportBuilder:
         ])
 
     async def _ollama_call(self, messages: list) -> str:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{self._config.ollama_host}/api/chat",
-                json={
-                    "model": self._config.research_orchestrator_model,
-                    "messages": messages,
-                    "stream": False,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["message"]["content"]
+        from proxy.research.engine import ollama_call
+        return await ollama_call(
+            self._config.ollama_host,
+            self._config.research_orchestrator_model,
+            messages,
+            self._ollama_sem,
+        )

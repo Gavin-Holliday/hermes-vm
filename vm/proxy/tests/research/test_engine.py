@@ -21,11 +21,12 @@ VALID_OUTPUT = {
 
 @pytest.fixture
 def agent(cfg):
+    import asyncio
     sec = SecurityValidator()
     sv = SourceValidator(sec)
     cp = ContentProcessor()
     ov = OutputValidator()
-    return ResearchAgent(cfg, sec, sv, cp, ov)
+    return ResearchAgent(cfg, sec, sv, cp, ov, asyncio.Semaphore(1))
 
 
 @respx.mock

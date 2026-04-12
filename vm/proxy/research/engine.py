@@ -13,15 +13,28 @@ from proxy.research.processors import ContentProcessor
 
 log = logging.getLogger("hermes.research.engine")
 
-async def ollama_call(ollama_host: str, model: str, messages: list) -> str:
-    """Module-level Ollama chat helper shared by agents and orchestrator."""
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{ollama_host}/api/chat",
-            json={"model": model, "messages": messages, "stream": False},
-        )
-        resp.raise_for_status()
-        return resp.json()["message"]["content"]
+async def ollama_call(ollama_host: str, model: str, messages: list,
+                      sem: "asyncio.Semaphore | None" = None) -> str:
+    """Module-level Ollama chat helper shared by agents and orchestrator.
+
+    Pass sem to serialize concurrent callers — Ollama runs one inference at a
+    time, so parallel agents must queue rather than all timing out together.
+    The semaphore is acquired before opening the connection so the 300s timeout
+    only starts once Ollama is actually free.
+    """
+    async def _call() -> str:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{ollama_host}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
+            )
+            resp.raise_for_status()
+            return resp.json()["message"]["content"]
+
+    if sem is not None:
+        async with sem:
+            return await _call()
+    return await _call()
 
 
 AGENT_SYSTEM_PROMPT = """You are a research agent. Given a search query and web content, extract findings.
@@ -43,12 +56,14 @@ class ResearchAgent:
     def __init__(self, config, security: SecurityValidator,
                  source_validator: SourceValidator,
                  content_processor: ContentProcessor,
-                 output_validator: OutputValidator):
+                 output_validator: OutputValidator,
+                 ollama_sem: asyncio.Semaphore):
         self._config = config
         self._security = security
         self._source_val = source_validator
         self._processor = content_processor
         self._output_val = output_validator
+        self._ollama_sem = ollama_sem
 
     async def run(self, query: str, topic: str) -> "ResearcherOutput | None":
         results = await self._search(query)
@@ -157,7 +172,7 @@ class ResearchAgent:
         return result.strip() or query
 
     async def _ollama_call(self, model: str, messages: list) -> str:
-        return await ollama_call(self._config.ollama_host, model, messages)
+        return await ollama_call(self._config.ollama_host, model, messages, self._ollama_sem)
 
 
 from proxy.research.knowledge import KnowledgeBase
@@ -190,9 +205,11 @@ class ResearchEngine:
         self._source_val = SourceValidator(self._security, config.research_max_redirect_depth)
         self._processor = ContentProcessor()
         self._output_val = OutputValidator()
+        # Serialize all Ollama calls — the model runs one inference at a time
+        self._ollama_sem = asyncio.Semaphore(1)
         self._agent = ResearchAgent(config, self._security, self._source_val,
-                                    self._processor, self._output_val)
-        self._builder = ReportBuilder(config)
+                                    self._processor, self._output_val, self._ollama_sem)
+        self._builder = ReportBuilder(config, self._ollama_sem)
 
     async def run(self) -> None:
         start = time.monotonic()
@@ -282,7 +299,7 @@ class ResearchEngine:
                 f"Topic: {self._topic}\nCoverage: {self._kb.coverage_score():.0%}\n\n{summary}"
             )},
         ]
-        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages)
+        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages, self._ollama_sem)
         try:
             return json.loads(raw)
         except Exception:
