@@ -6,6 +6,9 @@ ollama_host: "0.0.0.0"
 ollama_port: 11434
 ollama_num_parallel: "{{ lookup('env', 'OLLAMA_NUM_PARALLEL') | default('5') }}"
 
+# Research
+research_report_channel: "{{ lookup('env', 'RESEARCH_REPORT_CHANNEL') | default('') }}"
+
 # Podman machine
 podman_machine_name: "hermes-machine"
 podman_machine_cpus: 4

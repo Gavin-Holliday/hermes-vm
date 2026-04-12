@@ -36,7 +36,7 @@ def make_handlers(
 
     async def send_message(request: web.Request) -> web.Response:
         data = await request.json()
-        channel = await _resolve_channel(bot, cfg, data)
+        channel = await _resolve_channel(bot, cfg, data, create_if_missing="channel_name" in data)
         if channel is None:
             return web.json_response({"error": "channel not found"}, status=404)
         msg = await channel.send(str(data.get("content", ""))[:2000])
@@ -215,7 +215,7 @@ def make_handlers(
     async def send_embed(request: web.Request) -> web.Response:
         import asyncio
         data = await request.json()
-        channel = await _resolve_channel(bot, cfg, data)
+        channel = await _resolve_channel(bot, cfg, data, create_if_missing=True)
         if channel is None:
             return web.json_response({"error": "channel not found"}, status=404)
         try:
@@ -324,7 +324,7 @@ def make_handlers(
     }
 
 
-async def _resolve_channel(bot, cfg: BotConfig, data: dict):
+async def _resolve_channel(bot, cfg: BotConfig, data: dict, create_if_missing: bool = False):
     if "channel_id" in data:
         return bot.get_channel(int(data["channel_id"]))
     if "channel_name" in data:
@@ -333,4 +333,10 @@ async def _resolve_channel(bot, cfg: BotConfig, data: dict):
             for ch in guild.channels:
                 if ch.name.lower() == name:
                     return ch
+        if create_if_missing and bot.guilds:
+            guild = bot.guilds[0]
+            try:
+                return await guild.create_text_channel(name)
+            except Exception:
+                pass
     return bot.get_channel(cfg.channel_id)

@@ -208,6 +208,7 @@ class ResearchEngine:
         self.job_id = job_id
         self._topic = topic
         self._channel = channel
+        self._report_channel = config.research_report_channel or channel
         self._config = config
         self._memory_guard = memory_guard
         self._store = store
@@ -254,9 +255,12 @@ class ResearchEngine:
 
             coverage = self._kb.coverage_score()
             novelty = self._kb.novelty_rate()
+            import psutil
+            mem = psutil.virtual_memory()
             await self._post_progress(
                 f"Round {round_num} complete — {len(valid)} agents returned findings, "
-                f"{coverage:.0%} coverage. Identifying gaps..."
+                f"{coverage:.0%} coverage · RAM {mem.percent:.0f}% used "
+                f"({mem.available // (1024**3):.1f}GB free). Identifying gaps..."
             )
 
             if novelty < self._config.research_novelty_threshold and round_num > 1:
@@ -335,7 +339,7 @@ class ResearchEngine:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
                     f"{self._discord_api_url}/embed",
-                    json={**embed, "channel_name": self._channel},
+                    json={**embed, "channel_name": self._report_channel},
                 )
         except Exception:
             pass
