@@ -42,6 +42,7 @@ class Config:
     github_token: str = None
     research_agent_model: str = None
     research_orchestrator_model: str = None
+    research_report_model: str = None
     research_max_rounds: int = None
     research_timeout_mins: int = None
     research_novelty_threshold: float = None
@@ -93,6 +94,8 @@ class Config:
             self.research_agent_model = os.getenv("RESEARCH_AGENT_MODEL", "gemma4:e4b")
         if self.research_orchestrator_model is None:
             self.research_orchestrator_model = os.getenv("RESEARCH_ORCHESTRATOR_MODEL", "gemma4:e4b")
+        if self.research_report_model is None:
+            self.research_report_model = os.getenv("RESEARCH_REPORT_MODEL", "gemma4:26b")
         if self.research_max_rounds is None:
             self.research_max_rounds = int(os.getenv("RESEARCH_MAX_ROUNDS", "5"))
         if self.research_timeout_mins is None:

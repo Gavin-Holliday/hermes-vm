@@ -55,6 +55,9 @@
       GITHUB_TOKEN={{ github_token }}
       RESEARCH_OLLAMA_PARALLEL={{ ollama_num_parallel }}
       RESEARCH_REPORT_CHANNEL={{ research_report_channel }}
+      RESEARCH_AGENT_MODEL={{ research_agent_model }}
+      RESEARCH_ORCHESTRATOR_MODEL={{ research_orchestrator_model }}
+      RESEARCH_REPORT_MODEL={{ research_report_model }}
     dest: /etc/containers/systemd/hermes.env
     mode: "0600"
   become: true

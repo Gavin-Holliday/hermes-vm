@@ -167,8 +167,9 @@ class ReportBuilder:
         from proxy.research.engine import ollama_call
         return await ollama_call(
             self._config.ollama_host,
-            self._config.research_orchestrator_model,
+            self._config.research_report_model,
             messages,
             self._ollama_sem,
             fmt,
+            timeout=300.0,
         )

@@ -8,6 +8,9 @@ ollama_num_parallel: "{{ lookup('env', 'OLLAMA_NUM_PARALLEL') | default('3') }}"
 
 # Research
 research_report_channel: "{{ lookup('env', 'RESEARCH_REPORT_CHANNEL') | default('') }}"
+research_agent_model: "{{ lookup('env', 'RESEARCH_AGENT_MODEL') | default('gemma4:e4b') }}"
+research_orchestrator_model: "{{ lookup('env', 'RESEARCH_ORCHESTRATOR_MODEL') | default('gemma4:e4b') }}"
+research_report_model: "{{ lookup('env', 'RESEARCH_REPORT_MODEL') | default('gemma4:26b') }}"
 
 # Optional features
 enable_webui: false   # Set true to deploy Open WebUI (+1 GB VM memory)
