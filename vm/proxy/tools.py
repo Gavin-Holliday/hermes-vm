@@ -328,18 +328,25 @@ ALL_TOOL_SCHEMAS = [
     ),
     _schema(
         "github_create_issue",
-        "Create a new GitHub issue in a repository. Requires GITHUB_TOKEN to be set.",
+        "Create a new GitHub issue. Provide structured fields — the tool assembles the formatted body.",
         {
             "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
             "title": {"type": "string", "description": "Issue title"},
-            "body": {"type": "string", "description": "Issue body/description (optional)"},
+            "summary": {"type": "string", "description": "1-3 sentences describing the problem or feature request"},
+            "context": {"type": "string", "description": "Why this matters, what triggered it, relevant background (optional)"},
+            "acceptance_criteria": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of specific, measurable outcomes that define done (optional)",
+            },
+            "technical_notes": {"type": "string", "description": "Implementation hints, affected files, constraints (optional)"},
             "labels": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Optional list of label names to apply",
+                "description": "Labels to apply — choose from: bug, feat, improvement, research, infra, docs",
             },
         },
-        ["repo", "title"],
+        ["repo", "title", "summary"],
     ),
     _schema(
         "github_comment_issue",
@@ -1266,13 +1273,22 @@ async def execute_github_get_issue(repo: str, number: int, config: "Config") -> 
 
 
 async def execute_github_create_issue(
-    repo: str, title: str, body: str | None, labels: list[str] | None, config: "Config"
+    repo: str, title: str, summary: str,
+    context: str | None, acceptance_criteria: list[str] | None,
+    technical_notes: str | None, labels: list[str] | None, config: "Config"
 ) -> str:
     if not config.github_token:
         return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
-    payload: dict = {"title": title}
-    if body:
-        payload["body"] = body
+    sections = [f"## Summary\n{summary}"]
+    if context:
+        sections.append(f"## Context\n{context}")
+    if acceptance_criteria:
+        criteria = "\n".join(f"- [ ] {c}" for c in acceptance_criteria)
+        sections.append(f"## Acceptance Criteria\n{criteria}")
+    if technical_notes:
+        sections.append(f"## Technical Notes\n{technical_notes}")
+    body = "\n\n".join(sections)
+    payload: dict = {"title": title, "body": body}
     if labels:
         payload["labels"] = labels
     try:
@@ -1836,7 +1852,9 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         return await execute_github_get_issue(args["repo"], args["number"], config)
     if name == "github_create_issue":
         return await execute_github_create_issue(
-            args["repo"], args["title"], args.get("body"), args.get("labels"), config
+            args["repo"], args["title"], args["summary"],
+            args.get("context"), args.get("acceptance_criteria"),
+            args.get("technical_notes"), args.get("labels"), config
         )
     if name == "github_comment_issue":
         return await execute_github_comment_issue(args["repo"], args["number"], args["body"], config)
