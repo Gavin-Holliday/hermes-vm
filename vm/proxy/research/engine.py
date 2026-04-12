@@ -347,7 +347,7 @@ class JobManager:
         try:
             await engine.run()
         except Exception as exc:
-            log.error("Research job %s failed: %s", job_id, exc)
+            log.error("Research job %s failed: %s", job_id, exc, exc_info=True)
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     await client.post(
