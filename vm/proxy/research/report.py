@@ -141,13 +141,14 @@ class ReportBuilder:
         ])
 
     async def _ollama_review(self, report_text: str) -> tuple:
+        from proxy.research.engine import _strip_json_fences
         prompt = f"Review this report for unsupported claims and missing citations:\n\n{report_text}"
         raw = await self._ollama_call([
             {"role": "system", "content": 'You are a fact-checker. Respond with JSON: {"issues": [], "approved": true}'},
             {"role": "user", "content": prompt},
-        ])
+        ], fmt="json")
         try:
-            data = json.loads(raw)
+            data = json.loads(_strip_json_fences(raw))
             return data.get("approved", False), data.get("issues", [])
         except Exception:
             return True, []
@@ -162,11 +163,12 @@ class ReportBuilder:
             {"role": "user", "content": prompt},
         ])
 
-    async def _ollama_call(self, messages: list) -> str:
+    async def _ollama_call(self, messages: list, fmt: str = None) -> str:
         from proxy.research.engine import ollama_call
         return await ollama_call(
             self._config.ollama_host,
             self._config.research_orchestrator_model,
             messages,
             self._ollama_sem,
+            fmt,
         )

@@ -13,21 +13,35 @@ from proxy.research.processors import ContentProcessor
 
 log = logging.getLogger("hermes.research.engine")
 
+def _strip_json_fences(text: str) -> str:
+    """Strip markdown code fences that models often wrap JSON in."""
+    text = text.strip()
+    if text.startswith("```"):
+        # Remove opening fence (```json or ```)
+        text = text[text.index("\n") + 1:] if "\n" in text else text[3:]
+    if text.endswith("```"):
+        text = text[: text.rfind("```")]
+    return text.strip()
+
+
 async def ollama_call(ollama_host: str, model: str, messages: list,
-                      sem: "asyncio.Semaphore | None" = None) -> str:
+                      sem: "asyncio.Semaphore | None" = None,
+                      fmt: "str | None" = None) -> str:
     """Module-level Ollama chat helper shared by agents and orchestrator.
 
     Pass sem to serialize concurrent callers — Ollama runs one inference at a
     time, so parallel agents must queue rather than all timing out together.
-    The semaphore is acquired before opening the connection so the 300s timeout
+    The semaphore is acquired before opening the connection so the 120s timeout
     only starts once Ollama is actually free.
+    Pass fmt="json" to engage Ollama's JSON mode and avoid markdown-wrapped output.
     """
+    payload: dict = {"model": model, "messages": messages, "stream": False}
+    if fmt:
+        payload["format"] = fmt
+
     async def _call() -> str:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{ollama_host}/api/chat",
-                json={"model": model, "messages": messages, "stream": False},
-            )
+            resp = await client.post(f"{ollama_host}/api/chat", json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]
 
@@ -156,9 +170,9 @@ class ResearchAgent:
             {"role": "system", "content": AGENT_SYSTEM_PROMPT},
             {"role": "user", "content": f"Query: {query}\n\nContent:\n{content_text}"},
         ]
-        raw = await self._ollama_call(self._config.research_agent_model, messages)
+        raw = await self._ollama_call(self._config.research_agent_model, messages, fmt="json")
         try:
-            data = json.loads(raw)
+            data = json.loads(_strip_json_fences(raw))
             return self._output_val.validate(data)
         except Exception:
             return None
@@ -171,8 +185,8 @@ class ResearchAgent:
         result = await self._ollama_call(self._config.research_agent_model, messages)
         return result.strip() or query
 
-    async def _ollama_call(self, model: str, messages: list) -> str:
-        return await ollama_call(self._config.ollama_host, model, messages, self._ollama_sem)
+    async def _ollama_call(self, model: str, messages: list, fmt: str = None) -> str:
+        return await ollama_call(self._config.ollama_host, model, messages, self._ollama_sem, fmt)
 
 
 from proxy.research.knowledge import KnowledgeBase
@@ -299,9 +313,9 @@ class ResearchEngine:
                 f"Topic: {self._topic}\nCoverage: {self._kb.coverage_score():.0%}\n\n{summary}"
             )},
         ]
-        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages, self._ollama_sem)
+        raw = await ollama_call(self._config.ollama_host, self._config.research_orchestrator_model, messages, self._ollama_sem, fmt="json")
         try:
-            return json.loads(raw)
+            return json.loads(_strip_json_fences(raw))
         except Exception:
             return {"satisfied": False, "new_queries": [], "reasoning": "parse error"}
 
