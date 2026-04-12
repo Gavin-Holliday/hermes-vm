@@ -63,7 +63,7 @@ ssh:
 
 # Restart all hermes containers in the VM
 restart:
-    podman machine ssh {{machine}} "sudo systemctl restart hermes-proxy hermes-webui hermes-searxng hermes-discord"
+    podman machine ssh {{machine}} "sudo systemctl restart hermes-proxy hermes-searxng hermes-discord"
 
 # ── Volume management ─────────────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ backup-volumes:
     set -euo pipefail
     mkdir -p backups
     TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-    for vol in hermes-webui-data hermes-searxng-config; do
+    for vol in hermes-searxng-config; do
         echo "Backing up $vol..."
         podman machine ssh {{machine}} \
             "sudo podman volume export $vol" > "backups/${vol}-${TIMESTAMP}.tar"
@@ -85,7 +85,7 @@ backup-volumes:
 restore-volumes:
     #!/usr/bin/env bash
     set -euo pipefail
-    for vol in hermes-webui-data hermes-searxng-config; do
+    for vol in hermes-searxng-config; do
         backup=$(ls -t backups/${vol}-*.tar 2>/dev/null | head -1)
         if [[ -z "$backup" ]]; then
             echo "No backup found for $vol — skipping."
