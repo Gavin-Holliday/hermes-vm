@@ -6,6 +6,9 @@ ollama_host: "0.0.0.0"
 ollama_port: 11434
 ollama_num_parallel: "{{ lookup('env', 'OLLAMA_NUM_PARALLEL') | default('3') }}"
 
+# Bot
+default_model: "{{ lookup('env', 'MODEL') | default('gemma4:e4b') }}"
+
 # Research
 research_report_channel: "{{ lookup('env', 'RESEARCH_REPORT_CHANNEL') | default('') }}"
 research_agent_model: "{{ lookup('env', 'RESEARCH_AGENT_MODEL') | default('gemma4:e4b') }}"

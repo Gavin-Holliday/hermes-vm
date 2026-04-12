@@ -44,6 +44,7 @@
 - name: Write hermes.env into VM
   ansible.builtin.copy:
     content: |
+      MODEL={{ default_model }}
       ALLOWED_MODELS={{ allowed_models }}
       OLLAMA_HOST=http://host.containers.internal:11434
       RATE_LIMIT_BURST={{ rate_limit_burst }}

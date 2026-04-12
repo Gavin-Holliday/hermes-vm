@@ -98,3 +98,12 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to hermes-machine
+    needs: [build-proxy, build-discord]
+    runs-on: self-hosted
+    steps:
+      - name: Pull new images and restart containers
+        working-directory: /Users/gavinholliday/Projects/hermes-vm
+        run: just update-images && just restart
