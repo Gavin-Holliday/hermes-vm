@@ -257,21 +257,23 @@ class ResearchEngine:
             self._kb.ingest(valid)
             self._kb.increment_round()
 
-            if self._verbosity == "verbose":
-                for q, out in zip(queries, outputs):
-                    if out:
-                        await self._post_progress(
-                            f"  `{q}` → {len(out.findings)} findings (relevance {out.relevance_score:.0%})",
-                            min_verbosity="verbose",
-                        )
-                    else:
-                        await self._post_progress(f"  `{q}` → no findings", min_verbosity="verbose")
-
             coverage = self._kb.coverage_score()
             novelty = self._kb.novelty_rate()
+            failed_agents = sum(1 for o in outputs if o is None)
+
+            for q, out in zip(queries, outputs):
+                if out:
+                    await self._post_progress(
+                        f"  `{q}` → {len(out.findings)} findings (relevance {out.relevance_score:.0%})",
+                        min_verbosity="verbose",
+                    )
+                else:
+                    await self._post_progress(f"  `{q}` → no findings", min_verbosity="verbose")
+
             await self._post_progress(
-                f"Round {round_num} complete — {len(valid)} agents returned findings, "
-                f"{coverage:.0%} coverage. Identifying gaps..."
+                f"Round {round_num} complete — {len(valid)}/{len(queries)} agents found content"
+                + (f" ({failed_agents} failed)" if failed_agents else "")
+                + f" · {coverage:.0%} coverage · novelty {novelty:.0%}"
             )
             import psutil
             mem = psutil.virtual_memory()
@@ -281,7 +283,9 @@ class ResearchEngine:
             )
 
             if novelty < self._config.research_novelty_threshold and round_num > 1:
-                await self._post_progress("Diminishing returns — building report...")
+                await self._post_progress(
+                    f"Novelty {novelty:.0%} below threshold {self._config.research_novelty_threshold:.0%} — diminishing returns, building report...",
+                )
                 break
 
             if satisfied and not verification_done:

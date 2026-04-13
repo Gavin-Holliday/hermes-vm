@@ -359,6 +359,34 @@ ALL_TOOL_SCHEMAS = [
         ["repo", "number", "body"],
     ),
     _schema(
+        "github_add_labels",
+        "Add labels to a GitHub issue. Creates labels that don't exist yet.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "number": {"type": "integer", "description": "Issue number"},
+            "labels": {"type": "array", "items": {"type": "string"}, "description": "Label names to add"},
+        },
+        ["repo", "number", "labels"],
+    ),
+    _schema(
+        "github_remove_label",
+        "Remove a label from a GitHub issue.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "number": {"type": "integer", "description": "Issue number"},
+            "label": {"type": "string", "description": "Label name to remove"},
+        },
+        ["repo", "number", "label"],
+    ),
+    _schema(
+        "github_list_labels",
+        "List all labels defined in a repository.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+        },
+        ["repo"],
+    ),
+    _schema(
         "crypto_price",
         "Get the current price, 24h change %, and market cap for one or more cryptocurrencies using CoinGecko (no API key required).",
         {
@@ -1329,6 +1357,59 @@ async def execute_github_comment_issue(
         return f"Error adding comment: {e}"
 
 
+async def execute_github_add_labels(
+    repo: str, number: int, labels: list[str], config: "Config"
+) -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{repo}/issues/{number}/labels",
+                json={"labels": labels},
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+        return f"Labels added to #{number}: {', '.join(labels)}"
+    except Exception as e:
+        return f"Error adding labels: {e}"
+
+
+async def execute_github_remove_label(
+    repo: str, number: int, label: str, config: "Config"
+) -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.delete(
+                f"https://api.github.com/repos/{repo}/issues/{number}/labels/{label}",
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+        return f"Label '{label}' removed from #{number}"
+    except Exception as e:
+        return f"Error removing label: {e}"
+
+
+async def execute_github_list_labels(repo: str, config: "Config") -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/labels",
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            labels = resp.json()
+        if not labels:
+            return f"No labels defined in {repo}."
+        return "\n".join(f"• {l['name']} — {l.get('description', '')}" for l in labels)
+    except Exception as e:
+        return f"Error listing labels: {e}"
+
+
 # ── Financial data tools ──────────────────────────────────────────────────────
 
 
@@ -1858,6 +1939,12 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "github_comment_issue":
         return await execute_github_comment_issue(args["repo"], args["number"], args["body"], config)
+    if name == "github_add_labels":
+        return await execute_github_add_labels(args["repo"], args["number"], args["labels"], config)
+    if name == "github_remove_label":
+        return await execute_github_remove_label(args["repo"], args["number"], args["label"], config)
+    if name == "github_list_labels":
+        return await execute_github_list_labels(args["repo"], config)
     if name == "crypto_price":
         return await execute_crypto_price(args["symbols"], args.get("vs_currency", "usd"))
     if name == "crypto_trending":
