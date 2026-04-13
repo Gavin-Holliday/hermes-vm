@@ -73,7 +73,7 @@ jobs:
           Please review the logs, clarify the issue description, or implement manually. Re-add the \`claude\` label once the issue is updated to retry."
 
       - name: Notify Discord on failure
-        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
+        if: failure()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -81,6 +81,7 @@ jobs:
           ISSUE_URL: ${{ github.event.issue.html_url }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          [[ -z "$DISCORD_WEBHOOK_URL" ]] && exit 0
           curl -s -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d "{
