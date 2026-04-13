@@ -85,6 +85,7 @@ jobs:
           curl -s -X POST "$DISCORD_WEBHOOK_SUCCESS" \
             -H "Content-Type: application/json" \
             -d "{
+              \"status\": \"success\",
               \"content\": \"✅ **Issue #${ISSUE_NUMBER} implemented and closed**\n\n**${ISSUE_TITLE}**\n${ISSUE_URL}\n\n**Run:** ${RUN_URL}\"
             }"
 
@@ -101,5 +102,6 @@ jobs:
           curl -s -X POST "$DISCORD_WEBHOOK_ERRORS" \
             -H "Content-Type: application/json" \
             -d "{
+              \"status\": \"error\",
               \"content\": \"⚠️ **Claude needs help with issue #${ISSUE_NUMBER}**\n\n**${ISSUE_TITLE}**\n${ISSUE_URL}\n\nThe automated implementation failed. Check the logs or clarify the issue, then re-add the \`claude\` label to retry.\n\n**Logs:** ${RUN_URL}\"
             }"
