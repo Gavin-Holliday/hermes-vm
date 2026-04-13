@@ -10,10 +10,10 @@ Before starting, confirm you have or can create all of the following:
 
 - [ ] Apple Silicon Mac (M1 or later). Intel Macs are not supported.
 - [ ] macOS 13 (Ventura) or later.
-- [ ] [ZeroTier](https://www.zerotier.com/) account with a network already created. The Mac must already be joined to that network (`zerotier-cli join <network-id>`).
 - [ ] A Discord account with permission to create a bot in your server.
 - [ ] A GitHub account (used for `gh auth login`, container image pulls from ghcr.io, and optional GitHub issue integration).
 - [ ] `just` installed: `brew install just`.
+- [ ] (Optional) A VPN if you want to reach your services remotely. ZeroTier is one option — Tailscale, WireGuard, or your own VPN all work. If you're only using Hermes on your local network, you don't need a VPN at all.
 
 ---
 
@@ -98,21 +98,27 @@ cp .env.example .env
 
 Open `.env` in your editor. Each variable is explained below.
 
-### ZeroTier
+### VPN / Remote Access (Optional)
+
+The firewall rules restrict Ollama to localhost, the Podman VM bridge, and an optional VPN interface. If you don't need remote access, set both to placeholder values and the firewall will simply not allow any external interface:
 
 ```bash
-ZT_INTERFACE=ztXXXXXXXX
+ZT_INTERFACE=lo0
+ZT_SUBNET=127.0.0.1/32
+```
+
+If you use a VPN for remote access, set these to match your VPN interface and subnet:
+
+```bash
+ZT_INTERFACE=ztXXXXXXXX   # ZeroTier example
 ZT_SUBNET=10.x.x.0/24
 ```
 
-- `ZT_INTERFACE`: The name of your ZeroTier network interface. Find it with:
-  ```bash
-  zerotier-cli listnetworks
-  # or: ifconfig | grep zt
-  ```
-  It looks like `ztabcdef12`.
-
-- `ZT_SUBNET`: The CIDR subnet of your ZeroTier network. Find it in the ZeroTier Central web dashboard under **Managed Routes**, or with `zerotier-cli listnetworks` (the `Network` column). Example: `10.147.18.0/24`.
+- `ZT_INTERFACE`: Your VPN network interface name.
+  - **ZeroTier:** `zerotier-cli listnetworks` or `ifconfig | grep zt` → looks like `ztabcdef12`
+  - **Tailscale:** usually `utun` — check with `ifconfig | grep -B1 100.`
+  - **Local only:** use `lo0`
+- `ZT_SUBNET`: The CIDR subnet for that interface. For ZeroTier, find it in the ZeroTier Central dashboard under **Managed Routes**.
 
 ### Podman Machine Bridge
 

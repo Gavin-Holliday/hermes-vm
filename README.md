@@ -32,9 +32,9 @@ macOS Host
 
 - **Apple Silicon Mac only.** Container images are `linux/arm64`. Intel Macs are not supported — there is no GPU passthrough on QEMU regardless of architecture.
 - macOS 13 (Ventura) or later
-- [ZeroTier](https://www.zerotier.com/) installed and joined to your network
 - A Discord bot application (see [docs/setup.md](docs/setup.md))
 - `just` task runner (`brew install just`)
+- (Optional) A VPN for remote access — ZeroTier, Tailscale, WireGuard, or nothing if you're on the same network
 
 ---
 
@@ -61,8 +61,8 @@ Copy `.env.example` to `.env` and fill in every value before running `just setup
 
 | Variable | Required | Description | Example |
 |---|---|---|---|
-| `ZT_INTERFACE` | Yes | ZeroTier network interface name. Find with `zerotier-cli listnetworks`. | `ztabcdef12` |
-| `ZT_SUBNET` | Yes | ZeroTier network subnet in CIDR notation. | `10.147.18.0/24` |
+| `ZT_INTERFACE` | No | VPN interface for remote access (ZeroTier, Tailscale, etc.). Use `lo0` if local-only. | `ztabcdef12` |
+| `ZT_SUBNET` | No | CIDR subnet of the VPN interface. Use `127.0.0.1/32` if local-only. | `10.147.18.0/24` |
 | `VM_SUBNET` | Yes | Podman machine bridge subnet. | `192.168.64.0/24` |
 | `ALLOWED_MODELS` | Yes | Comma-separated Ollama model names the proxy permits. Other models return 403. | `gemma4:e4b,gemma4:26b` |
 | `DISCORD_TOKEN` | Yes | Discord bot token from the developer portal. | `MTxxxx...` |
