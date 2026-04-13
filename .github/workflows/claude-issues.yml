@@ -1,0 +1,33 @@
+name: Implement claude-labeled issues
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  implement:
+    name: Implement fix for issue #${{ github.event.issue.number }}
+    # Only run when the label just added is 'claude'
+    if: github.event.label.name == 'claude'
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Implement, commit, and close issue
+        working-directory: /Users/gavinholliday/Projects/hermes-vm
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          claude --print --dangerously-skip-permissions \
+            "A GitHub issue has been labeled 'claude' and needs to be implemented.
+
+          Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}
+
+          ${ISSUE_BODY}
+
+          The repo is at /Users/gavinholliday/Projects/hermes-vm. Investigate the issue, implement the fix, commit, and push. Then close the issue with a comment linking the commit SHA. Use: gh issue comment ${ISSUE_NUMBER} --repo Gavin-Holliday/hermes-vm --body '...' && gh issue close ${ISSUE_NUMBER} --repo Gavin-Holliday/hermes-vm"
