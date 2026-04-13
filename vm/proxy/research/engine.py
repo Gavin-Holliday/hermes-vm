@@ -350,21 +350,25 @@ class ResearchEngine:
         if min_verbosity == "verbose" and self._verbosity != "verbose":
             return
         text = f"[Research: '{self._topic}'] {message}"
+        ch_key = "channel_id" if self._channel.isdigit() else "channel_name"
+        ch_val = int(self._channel) if self._channel.isdigit() else self._channel
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
                     f"{self._discord_api_url}/send",
-                    json={"channel_name": self._channel, "content": text},
+                    json={ch_key: ch_val, "content": text},
                 )
         except Exception:
             pass
 
     async def _post_embed(self, embed: dict) -> None:
+        ch_key = "channel_id" if self._report_channel.isdigit() else "channel_name"
+        ch_val = int(self._report_channel) if self._report_channel.isdigit() else self._report_channel
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(
                     f"{self._discord_api_url}/embed",
-                    json={**embed, "channel_name": self._report_channel},
+                    json={**embed, ch_key: ch_val},
                 )
         except Exception:
             pass

@@ -29,8 +29,7 @@ class ResearchCog(commands.Cog):
         if verbosity not in ("normal", "verbose", "silent"):
             await ctx.send("verbosity must be `normal`, `verbose`, or `silent`")
             return
-        channel_name = getattr(ctx.channel, "name", "general")
-        payload = {"topic": topic, "channel": channel_name, "verbosity": verbosity}
+        payload = {"topic": topic, "channel": str(ctx.channel.id), "verbosity": verbosity}
         if researcher_model:
             payload["researcher_model"] = researcher_model
         if orchestrator_model:
@@ -57,8 +56,7 @@ class ResearchCog(commands.Cog):
                        url: str = None,
                        researcher_model: str = None,
                        orchestrator_model: str = None):
-        channel_name = getattr(ctx.channel, "name", "general")
-        payload = {"topic": topic, "channel": channel_name}
+        payload = {"topic": topic, "channel": str(ctx.channel.id)}
         if url:
             payload["urls"] = [url]
         try:
