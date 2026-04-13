@@ -77,7 +77,7 @@ async def main() -> None:
         await bot.tree.sync()
         log.info("Slash commands synced")
 
-    async def _seed_dm_context(user_id: int) -> None:
+    async def _seed_dm_context(dm_key: int) -> None:
         """Fetch last 10 main channel messages and seed DM history as context."""
         main_channel = bot.get_channel(cfg.channel_id)
         if main_channel is None:
@@ -91,9 +91,9 @@ async def main() -> None:
                 return
             lines.reverse()  # oldest first
             context = "[Recent main channel context — last messages before this DM]\n" + "\n".join(lines)
-            history.add(user_id, "user", context)
-            history.add(user_id, "assistant", "Got it — I have that channel context and I'm ready to chat privately.")
-            log.info("Seeded DM context for user_id=%d (%d messages)", user_id, len(lines))
+            history.add(dm_key, "user", context)
+            history.add(dm_key, "assistant", "Got it — I have that channel context and I'm ready to chat privately.")
+            log.info("Seeded DM context for dm_key=%d (%d messages)", dm_key, len(lines))
         except Exception as exc:
             log.warning("Failed to seed DM context: %s", exc)
 
@@ -101,13 +101,22 @@ async def main() -> None:
         """Handle a private DM conversation, seeding main channel context on first message."""
         log.info("DM from %s (id=%d): %r", msg.author, msg.author.id, msg.content[:80])
 
-        # Seed context from main channel on first message in this DM session
-        if not history.get(msg.author.id):
-            await _seed_dm_context(msg.author.id)
+        # Let command Cogs handle ! prefixed messages in DMs
+        await bot.process_commands(msg)
+        if msg.content.startswith("!"):
+            return
 
-        history.add(msg.author.id, "user", msg.content)
+        # Use channel.id as the history key (consistent with guild handler and !clear)
+        dm_key = msg.channel.id
+
+        # Seed context from main channel on first message in this DM session
+        if not history.get(dm_key):
+            await _seed_dm_context(dm_key)
+
+        history.add(dm_key, "user", msg.content)
 
         reply = await msg.channel.send("…")
+        tracker.track(reply)
         full_response = ""
         last_edit_len = 0
 
@@ -116,7 +125,7 @@ async def main() -> None:
                 async for chunk in stream_response(
                     cfg.proxy_url,
                     model_state.current,
-                    history.get(msg.author.id),
+                    history.get(dm_key),
                 ):
                     full_response += chunk
                     if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
@@ -133,7 +142,7 @@ async def main() -> None:
             await reply.edit(content="(no response)")
             return
 
-        history.add(msg.author.id, "assistant", full_response)
+        history.add(dm_key, "assistant", full_response)
 
         parts = _split(full_response)
         await reply.edit(content=parts[0])

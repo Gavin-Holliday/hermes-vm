@@ -30,11 +30,15 @@ class ServerCog(commands.Cog):
         """Show bot status: model, history size, server info, latency."""
         hist_len = len(self.history.get(ctx.channel.id))
         guild = ctx.guild
+        server_line = (
+            f"**Server:** {len(guild.channels)} channels, {guild.member_count} members\n"
+            if guild is not None
+            else ""
+        )
         await ctx.send(
             f"**Model:** `{self.model_state.current}`\n"
             f"**History:** {hist_len} messages\n"
-            f"**Server:** {len(guild.channels)} channels, "
-            f"{guild.member_count} members\n"
+            f"{server_line}"
             f"**Latency:** {round(self.bot.latency * 1000)}ms"
         )
 
@@ -42,6 +46,9 @@ class ServerCog(commands.Cog):
     @app_commands.describe(name="New nickname for the bot. Omit to reset to default.")
     async def change_nick(self, ctx: commands.Context, *, name: str = None) -> None:
         """Set the bot's nickname. Omit to reset."""
+        if ctx.guild is None:
+            await ctx.send("Nicknames can only be changed in a server.")
+            return
         try:
             await ctx.guild.me.edit(nick=name)
             await ctx.message.add_reaction("✅")
@@ -69,6 +76,9 @@ class ServerCog(commands.Cog):
     @app_commands.describe(args="name | description | YYYY-MM-DD HH:MM")
     async def create_event(self, ctx: commands.Context, *, args: str) -> None:
         """Create a scheduled server event."""
+        if ctx.guild is None:
+            await ctx.send("Scheduled events can only be created in a server.")
+            return
         event_data, error = EventService.parse_and_validate(args)
         if error:
             await ctx.send(error)
@@ -94,6 +104,9 @@ class ServerCog(commands.Cog):
     @commands.hybrid_command(name="invite")
     async def create_invite(self, ctx: commands.Context) -> None:
         """Create a 24-hour, 10-use invite link."""
+        if ctx.guild is None:
+            await ctx.send("Invites can only be created in a server.")
+            return
         try:
             invite = await ctx.channel.create_invite(
                 max_age=86400, max_uses=10, unique=True

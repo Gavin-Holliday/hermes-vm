@@ -20,7 +20,8 @@ class ModelCog(commands.Cog):
         self.history = history
 
     def _channel_guard(self, ctx: commands.Context) -> bool:
-        return ctx.channel.id == self.cfg.channel_id
+        # Allow DMs (no guild) and the configured main channel
+        return ctx.guild is None or ctx.channel.id == self.cfg.channel_id
 
     @commands.hybrid_command(name="model")
     @app_commands.describe(name="Model name or alias to switch to. Omit to list available models.")
