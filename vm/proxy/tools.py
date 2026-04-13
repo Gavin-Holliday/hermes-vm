@@ -398,6 +398,26 @@ ALL_TOOL_SCHEMAS = [
         ["repo", "description"],
     ),
     _schema(
+        "github_search_code",
+        "Search code in a GitHub repository. Use to find which files are involved in a bug or feature before creating an issue.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "query": {"type": "string", "description": "Search terms — function names, error strings, config keys, etc."},
+        },
+        ["repo", "query"],
+    ),
+    _schema(
+        "github_get_file",
+        "Read the contents of a file from a GitHub repository. Use to understand relevant code before writing an issue.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "path": {"type": "string", "description": "File path in the repo (e.g. 'vm/proxy/research/engine.py')"},
+            "start_line": {"type": "integer", "description": "First line to return (optional, 1-indexed)"},
+            "end_line": {"type": "integer", "description": "Last line to return (optional)"},
+        },
+        ["repo", "path"],
+    ),
+    _schema(
         "schedule_create",
         "Create a persistent scheduled task that runs a prompt on a cron schedule. Survives restarts.",
         {
@@ -1514,6 +1534,67 @@ async def execute_github_spec_issue(repo: str, description: str, config: "Config
         return f"Error fetching issue spec: {e}"
 
 
+async def execute_github_search_code(repo: str, query: str, config: "Config") -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.github.com/search/code",
+                params={"q": f"{query} repo:{repo}", "per_page": 10},
+                headers=_github_headers(config.github_token),
+            )
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+        if not items:
+            return f"No code matches found for `{query}` in {repo}."
+        lines = [f"**Code search: `{query}` in {repo}**"]
+        for item in items:
+            path = item["path"]
+            url = item.get("html_url", "")
+            # Extract text matches if available
+            matches = item.get("text_matches", [])
+            snippets = [m.get("fragment", "").strip() for m in matches[:2] if m.get("fragment")]
+            entry = f"• `{path}`"
+            if snippets:
+                entry += "\n  ```\n  " + "\n  ".join(s[:200] for s in snippets) + "\n  ```"
+            lines.append(entry)
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error searching code: {e}"
+
+
+async def execute_github_get_file(
+    repo: str, path: str, start_line: int | None, end_line: int | None, config: "Config"
+) -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://api.github.com/repos/{repo}/contents/{path}",
+                headers={**_github_headers(config.github_token), "Accept": "application/vnd.github.raw+json"},
+            )
+            resp.raise_for_status()
+            content = resp.text
+        lines = content.splitlines()
+        if start_line or end_line:
+            s = (start_line or 1) - 1
+            e = end_line or len(lines)
+            lines = lines[s:e]
+            line_info = f" (lines {start_line or 1}–{end_line or len(content.splitlines())})"
+        else:
+            line_info = ""
+            # Cap at 200 lines to avoid flooding context
+            if len(lines) > 200:
+                lines = lines[:200]
+                line_info = " (first 200 lines — use start_line/end_line for more)"
+        numbered = "\n".join(f"{i+1:4}: {l}" for i, l in enumerate(lines))
+        return f"**{path}**{line_info}\n```\n{numbered}\n```"
+    except Exception as e:
+        return f"Error reading file: {e}"
+
+
 async def execute_github_list_labels(repo: str, config: "Config") -> str:
     if not config.github_token:
         return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
@@ -2075,6 +2156,10 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         return await execute_github_list_labels(args["repo"], config)
     if name == "github_spec_issue":
         return await execute_github_spec_issue(args["repo"], args["description"], config)
+    if name == "github_search_code":
+        return await execute_github_search_code(args["repo"], args["query"], config)
+    if name == "github_get_file":
+        return await execute_github_get_file(args["repo"], args["path"], args.get("start_line"), args.get("end_line"), config)
     if name == "crypto_price":
         return await execute_crypto_price(args["symbols"], args.get("vs_currency", "usd"))
     if name == "crypto_trending":
