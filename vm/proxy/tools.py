@@ -294,13 +294,14 @@ ALL_TOOL_SCHEMAS = [
     ),
     _schema(
         "remind",
-        "Set a reminder that sends a message to a channel after a delay. Supports 'in X minutes/hours/days', ISO datetime strings.",
+        "Set a reminder. Extract the action, deadline, and context from the user's message — the tool formats and delivers it.",
         {
-            "message": {"type": "string", "description": "Reminder message to send"},
+            "action": {"type": "string", "description": "What needs to be done or remembered"},
             "when": {"type": "string", "description": "When to send: 'in 30 minutes', 'in 2 hours', 'in 1 day', or ISO datetime like '2024-03-15T14:00:00'"},
+            "context": {"type": "string", "description": "Optional background or reason for the reminder"},
             "channel": {"type": "string", "description": "Channel name or ID to send the reminder to (optional, defaults to main channel)"},
         },
-        ["message", "when"],
+        ["action", "when"],
     ),
     _schema(
         "ollama_models",
@@ -1189,9 +1190,13 @@ def _parse_when(when: str) -> int:
 
 
 async def execute_remind(
-    message: str, when: str, channel: str | None, config: "Config"
+    action: str, when: str, context: str | None, channel: str | None, config: "Config"
 ) -> str:
     delay = _parse_when(when)
+    lines = [f"**Reminder:** {action}"]
+    if context:
+        lines.append(f"*{context}*")
+    message = "\n".join(lines)
     body: dict = {"message": message, "delay_seconds": delay}
     if channel:
         key = "channel_id" if channel.isdigit() else "channel_name"
@@ -1924,7 +1929,7 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
             config,
         )
     if name == "remind":
-        return await execute_remind(args["message"], args["when"], args.get("channel"), config)
+        return await execute_remind(args["action"], args["when"], args.get("context"), args.get("channel"), config)
     if name == "ollama_models":
         return await execute_ollama_models(config)
     if name == "github_list_issues":
