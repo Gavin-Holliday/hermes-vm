@@ -17,7 +17,7 @@ class BotConfig:
 
     @classmethod
     def from_env(cls) -> "BotConfig":
-        default_model = os.environ.get("MODEL", "hermes3")
+        default_model = os.environ.get("MODEL", "gemma4:e4b")
         raw_vc = os.environ.get("TTS_VOICE_CHANNEL_ID")
         return cls(
             token=os.environ["DISCORD_TOKEN"],
