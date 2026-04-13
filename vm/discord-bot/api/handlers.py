@@ -36,7 +36,7 @@ def make_handlers(
 
     async def send_message(request: web.Request) -> web.Response:
         data = await request.json()
-        channel = await _resolve_channel(bot, cfg, data, create_if_missing="channel_name" in data)
+        channel = await _resolve_channel(bot, cfg, data, create_if_missing=False)
         if channel is None:
             return web.json_response({"error": "channel not found"}, status=404)
         msg = await channel.send(str(data.get("content", ""))[:2000])

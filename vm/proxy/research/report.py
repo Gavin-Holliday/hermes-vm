@@ -83,43 +83,43 @@ class ReportBuilder:
                     f"{int(report.duration_secs // 60)}m {int(report.duration_secs % 60)}s"
         }
         main_content = f"{report.summary}\n\n**Findings**\n{report.findings_text}"
-        if len(main_content) + len(sources_text) <= 5800:
-            fields = []
-            if report.contradictions_text:
-                fields.append({
-                    "name": "Alternative Views",
-                    "value": report.contradictions_text[:1024],
-                    "inline": False,
-                })
-            fields.append({"name": "Sources", "value": sources_text[:1024] or "No sources", "inline": False})
-            return [{
-                "title": report.title,
-                "description": main_content[:4096],
-                "color": 0x4F8EF7,
-                "fields": fields,
-                "footer": footer,
-            }]
-        # Overflow: split into multiple embeds
-        embeds = [{
-            "title": report.title,
-            "description": main_content[:4096],
-            "color": 0x4F8EF7,
-            "fields": [],
-        }]
-        if report.contradictions_text:
-            embeds.append({
-                "title": f"{report.title} — Alternative Views",
-                "description": report.contradictions_text[:4096],
+
+        # Chunk main_content into 4096-char pages
+        pages = _chunk_text(main_content, 4096)
+        embeds = []
+        for i, page in enumerate(pages):
+            e = {
+                "title": report.title if i == 0 else f"{report.title} (cont.)",
+                "description": page,
                 "color": 0x4F8EF7,
                 "fields": [],
+            }
+            # Attach sources/contradictions as fields on the last content embed
+            if i == len(pages) - 1:
+                if report.contradictions_text:
+                    e["fields"].append({
+                        "name": "Alternative Views",
+                        "value": report.contradictions_text[:1024],
+                        "inline": False,
+                    })
+                e["fields"].append({
+                    "name": "Sources",
+                    "value": sources_text[:1024] or "No sources",
+                    "inline": False,
+                })
+                e["footer"] = footer
+            embeds.append(e)
+
+        # If sources overflow the field (>1024), add a dedicated sources embed
+        if len(sources_text) > 1024:
+            embeds.append({
+                "title": f"{report.title} — Sources",
+                "description": sources_text[:4096],
+                "color": 0x4F8EF7,
+                "fields": [],
+                "footer": footer,
             })
-        embeds.append({
-            "title": f"{report.title} — Sources",
-            "description": sources_text[:4096] if sources_text else "No sources",
-            "color": 0x4F8EF7,
-            "fields": [],
-            "footer": footer,
-        })
+
         return embeds
 
     def _extract_contradictions(self, kb) -> str:
@@ -173,3 +173,17 @@ class ReportBuilder:
             fmt,
             timeout=300.0,
         )
+
+
+def _chunk_text(text: str, max_len: int) -> list:
+    """Split text into chunks of at most max_len chars, breaking on newlines where possible."""
+    chunks = []
+    while len(text) > max_len:
+        split = text.rfind("\n", 0, max_len)
+        if split == -1:
+            split = max_len
+        chunks.append(text[:split])
+        text = text[split:].lstrip("\n")
+    if text:
+        chunks.append(text)
+    return chunks
