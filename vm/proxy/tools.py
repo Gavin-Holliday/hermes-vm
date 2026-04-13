@@ -389,6 +389,15 @@ ALL_TOOL_SCHEMAS = [
         ["repo"],
     ),
     _schema(
+        "github_spec_issue",
+        "Research before creating a GitHub issue. Call this FIRST with a rough description — it checks for duplicates, finds related issues, lists available labels, and returns a structured brief. Use the brief to write a thorough github_create_issue call.",
+        {
+            "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
+            "description": {"type": "string", "description": "Rough description of the bug or feature"},
+        },
+        ["repo", "description"],
+    ),
+    _schema(
         "schedule_create",
         "Create a persistent scheduled task that runs a prompt on a cron schedule. Survives restarts.",
         {
@@ -1452,6 +1461,59 @@ async def execute_github_remove_label(
         return f"Error removing label: {e}"
 
 
+async def execute_github_spec_issue(repo: str, description: str, config: "Config") -> str:
+    if not config.github_token:
+        return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
+    headers = _github_headers(config.github_token)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Fetch open issues and labels in parallel
+            issues_resp, labels_resp = await asyncio.gather(
+                client.get(f"https://api.github.com/repos/{repo}/issues",
+                           params={"state": "open", "per_page": 50}, headers=headers),
+                client.get(f"https://api.github.com/repos/{repo}/labels",
+                           params={"per_page": 50}, headers=headers),
+            )
+            issues_resp.raise_for_status()
+            labels_resp.raise_for_status()
+            open_issues = issues_resp.json()
+            labels = [l["name"] for l in labels_resp.json()]
+
+        # Simple keyword overlap to find related issues
+        desc_words = set(description.lower().split())
+        related = []
+        for issue in open_issues:
+            title_words = set(issue["title"].lower().split())
+            body_words = set((issue.get("body") or "").lower().split())
+            overlap = desc_words & (title_words | body_words)
+            if len(overlap) >= 2:
+                related.append(f"  #{issue['number']} — {issue['title']}")
+
+        sections = [
+            f"## Issue Brief for: {repo}",
+            f"**Your description:** {description}",
+            "",
+        ]
+        if related:
+            sections.append(f"**Possibly related open issues (check for duplicates):**\n" + "\n".join(related[:5]))
+        else:
+            sections.append("**No obviously related open issues found.**")
+
+        sections.append(f"\n**Available labels:** {', '.join(labels) if labels else 'none defined'}")
+        sections.append(
+            "\n**Now call github_create_issue with:**\n"
+            "- title: concise, action-oriented (e.g. 'Fix X when Y happens')\n"
+            "- summary: what is broken or needed, and what impact it has\n"
+            "- context: what triggered this, any relevant observations or logs\n"
+            "- acceptance_criteria: specific, testable conditions for done\n"
+            "- technical_notes: affected files, root cause hypothesis, constraints\n"
+            "- labels: pick from the available labels above"
+        )
+        return "\n".join(sections)
+    except Exception as e:
+        return f"Error fetching issue spec: {e}"
+
+
 async def execute_github_list_labels(repo: str, config: "Config") -> str:
     if not config.github_token:
         return "GITHUB_TOKEN not set in hermes.env — add it to use GitHub tools"
@@ -2011,6 +2073,8 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         return await execute_github_remove_label(args["repo"], args["number"], args["label"], config)
     if name == "github_list_labels":
         return await execute_github_list_labels(args["repo"], config)
+    if name == "github_spec_issue":
+        return await execute_github_spec_issue(args["repo"], args["description"], config)
     if name == "crypto_price":
         return await execute_crypto_price(args["symbols"], args.get("vs_currency", "usd"))
     if name == "crypto_trending":
