@@ -25,13 +25,19 @@ async def run_tool_loop(
         current_messages = list(messages)
         had_tool_calls = False
 
+        _continuation_nudge = None
+
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             for _ in range(config.max_tool_rounds):
+                messages_for_call = (
+                    current_messages + [_continuation_nudge]
+                    if _continuation_nudge else current_messages
+                )
                 resp = await client.post(
                     f"{config.ollama_host}/api/chat",
                     json={
                         "model": model,
-                        "messages": current_messages,
+                        "messages": messages_for_call,
                         "tools": ALL_TOOL_SCHEMAS,
                         "stream": False,
                     },
@@ -60,6 +66,14 @@ async def run_tool_loop(
                     fn_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
                     result = await dispatch_tool(fn_name, fn_args, config)
                     current_messages.append({"role": "tool", "content": result})
+
+                # After tool results, nudge the model to continue rather than
+                # stopping mid-task. This message is not stored in current_messages
+                # so it never appears in the final conversation history.
+                _continuation_nudge = {
+                    "role": "system",
+                    "content": "Continue the task. Call the next required tool, or deliver the final answer if all steps are complete.",
+                }
 
             raise RuntimeError(
                 f"Tool call loop exceeded {config.max_tool_rounds} rounds"
