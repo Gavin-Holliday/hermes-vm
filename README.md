@@ -17,11 +17,11 @@ macOS Host
 ├── launchd: auto-starts Ollama + hermes-machine on boot
 ├── Ollama (Metal/GPU, port 11434 — pf firewall-locked)
 │
-└── hermes-machine (Podman VM, 6GB RAM, 4 CPUs, 40GB disk)
-    ├── hermes-proxy   :8000  (security proxy, tool-call loop)
-    ├── hermes-webui   :3000  (Open WebUI — VPN-accessible)
+└── hermes-machine (Podman VM, 2GB RAM, 4 CPUs, 40GB disk)
+    ├── hermes-proxy   :8000  (security proxy, tool-call loop, research engine)
     ├── hermes-searxng :8080  (internal only, no external port)
-    └── hermes-discord        (outbound only, no inbound ports)
+    ├── hermes-discord        (outbound only, no inbound ports)
+    └── hermes-webui   :3000  (Open WebUI — optional, enable_webui: true)
 ```
 
 **Data flow:** Discord message or WebUI request → `hermes-proxy` → jailbreak/architecture filter → model whitelist check → tool-call loop (proxy calls SearXNG internally if Hermes requests a web search) → Ollama inference with Metal acceleration → streamed response back to caller.
@@ -59,19 +59,27 @@ After setup completes:
 
 Copy `.env.example` to `.env` and fill in every value before running `just setup`.
 
-| Variable | Description | Example |
-|---|---|---|
-| `ZT_INTERFACE` | ZeroTier network interface name. Find it with `zerotier-cli listnetworks`. | `ztabcdef12` |
-| `ZT_SUBNET` | ZeroTier network subnet in CIDR notation. | `10.147.18.0/24` |
-| `VM_SUBNET` | Podman machine bridge subnet. Check with `ifconfig \| grep 192.168`. | `192.168.64.0/24` |
-| `ALLOWED_MODELS` | Comma-separated list of Ollama model names the proxy will permit. Any request for a model not in this list returns 403. | `hermes3,gemma4:27b` |
-| `DISCORD_TOKEN` | Discord bot token from the developer portal. | `MTExxx...` |
-| `DISCORD_CHANNEL_ID` | Numeric ID of the Discord channel the bot listens in. | `1234567890123456789` |
-| `RATE_LIMIT_BURST` | Maximum request burst before rate limiting kicks in (token bucket). | `20` |
-| `RATE_LIMIT_PER_MIN` | Sustained request rate allowed per minute. | `5` |
-| `MAX_TOOL_ROUNDS` | Maximum web search iterations the proxy will execute per conversation turn before returning an error. | `10` |
-| `TOOL_TIMEOUT_SECS` | Hard timeout in seconds for a single conversation turn, including all tool call rounds. | `120` |
-| `GHCR_OWNER` | Your GitHub username — used to construct container image URLs (`ghcr.io/<owner>/hermes-proxy:latest`). | `your-github-username` |
+| Variable | Required | Description | Example |
+|---|---|---|---|
+| `ZT_INTERFACE` | Yes | ZeroTier network interface name. Find with `zerotier-cli listnetworks`. | `ztabcdef12` |
+| `ZT_SUBNET` | Yes | ZeroTier network subnet in CIDR notation. | `10.147.18.0/24` |
+| `VM_SUBNET` | Yes | Podman machine bridge subnet. | `192.168.64.0/24` |
+| `ALLOWED_MODELS` | Yes | Comma-separated Ollama model names the proxy permits. Other models return 403. | `gemma4:e4b,gemma4:26b` |
+| `DISCORD_TOKEN` | Yes | Discord bot token from the developer portal. | `MTxxxx...` |
+| `DISCORD_CHANNEL_ID` | Yes | Numeric ID of the Discord channel the bot listens in. | `1234567890123456789` |
+| `GHCR_OWNER` | Yes | Your GitHub username — constructs container image pull URLs. | `your-github-username` |
+| `GITHUB_TOKEN` | No | Fine-grained PAT with Issues read+write. Enables GitHub issue tools. | `github_pat_...` |
+| `MODEL` | No | Default chat model. Defaults to `gemma4:e4b`. | `gemma4:e4b` |
+| `OLLAMA_NUM_PARALLEL` | No | Concurrent Ollama inference slots. Default: `5`. | `5` |
+| `RESEARCH_AGENT_MODEL` | No | Model for per-query research agents. Default: `gemma4:e4b`. | `gemma4:e4b` |
+| `RESEARCH_ORCHESTRATOR_MODEL` | No | Model for round orchestration. Default: `gemma4:e4b`. | `gemma4:e4b` |
+| `RESEARCH_REPORT_MODEL` | No | Model for final report synthesis. Default: `gemma4:26b`. | `gemma4:26b` |
+| `RESEARCH_OLLAMA_PARALLEL` | No | Max concurrent agent Ollama calls. Default: `3`. | `3` |
+| `RESEARCH_REPORT_CHANNEL` | No | Discord channel to post research reports to. | `research` |
+| `RATE_LIMIT_BURST` | No | Max request burst before rate limiting. Default: `20`. | `20` |
+| `RATE_LIMIT_PER_MIN` | No | Sustained requests per minute. Default: `5`. | `5` |
+| `MAX_TOOL_ROUNDS` | No | Max tool-call iterations per turn. Default: `10`. | `10` |
+| `TOOL_TIMEOUT_SECS` | No | Hard timeout per turn in seconds. Default: `120`. | `120` |
 
 ---
 
