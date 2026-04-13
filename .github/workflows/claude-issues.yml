@@ -4,6 +4,12 @@ on:
   issues:
     types: [labeled]
 
+# One run per issue at a time. If a second trigger comes in while one is
+# running, it queues rather than running in parallel.
+concurrency:
+  group: issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
 jobs:
   implement:
     name: Implement fix for issue #${{ github.event.issue.number }}
@@ -15,6 +21,14 @@ jobs:
       issues: write
 
     steps:
+      - name: Mark issue as in-progress
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo Gavin-Holliday/hermes-vm \
+            --add-label "in-progress" || true
+
       - name: Implement, commit, and close issue
         working-directory: /Users/gavinholliday/Projects/hermes-vm
         env:
@@ -31,3 +45,12 @@ jobs:
           ${ISSUE_BODY}
 
           The repo is at /Users/gavinholliday/Projects/hermes-vm. Investigate the issue, implement the fix, commit, and push. Then close the issue with a comment linking the commit SHA. Use: gh issue comment ${ISSUE_NUMBER} --repo Gavin-Holliday/hermes-vm --body '...' && gh issue close ${ISSUE_NUMBER} --repo Gavin-Holliday/hermes-vm"
+
+      - name: Remove in-progress label
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo Gavin-Holliday/hermes-vm \
+            --remove-label "in-progress" || true
