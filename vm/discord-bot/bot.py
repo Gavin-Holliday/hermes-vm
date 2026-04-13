@@ -32,8 +32,6 @@ logging.basicConfig(
 )
 log = logging.getLogger("hermes.bot")
 
-EDIT_EVERY_CHARS = 80
-
 
 def _build_intents(cfg: BotConfig) -> discord.Intents:
     intents = discord.Intents.default()
@@ -115,10 +113,7 @@ async def main() -> None:
 
         history.add(dm_key, "user", msg.content)
 
-        reply = await msg.channel.send("…")
-        tracker.track(reply)
         full_response = ""
-        last_edit_len = 0
 
         try:
             async with msg.channel.typing():
@@ -128,24 +123,21 @@ async def main() -> None:
                     history.get(dm_key),
                 ):
                     full_response += chunk
-                    if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
-                        display = full_response[:1990] + (
-                            "…" if len(full_response) > 1990 else ""
-                        )
-                        await reply.edit(content=display or "…")
-                        last_edit_len = len(full_response)
         except Exception as exc:
-            await reply.edit(content=f"Error: {exc}")
+            err = await msg.channel.send(f"Error: {exc}")
+            tracker.track(err)
             return
 
         if not full_response:
-            await reply.edit(content="(no response)")
+            reply = await msg.channel.send("(no response)")
+            tracker.track(reply)
             return
 
         history.add(dm_key, "assistant", full_response)
 
         parts = _split(full_response)
-        await reply.edit(content=parts[0])
+        reply = await msg.channel.send(parts[0])
+        tracker.track(reply)
         for part in parts[1:]:
             await msg.channel.send(part)
 
@@ -199,11 +191,7 @@ async def main() -> None:
 
         history.add(msg.channel.id, "user", user_content)
 
-        reply = await msg.channel.send("…")
-        tracker.track(reply)
-
         full_response = ""
-        last_edit_len = 0
 
         try:
             async with msg.channel.typing():
@@ -213,24 +201,21 @@ async def main() -> None:
                     history.get(msg.channel.id),
                 ):
                     full_response += chunk
-                    if len(full_response) - last_edit_len >= EDIT_EVERY_CHARS:
-                        display = full_response[:1990] + (
-                            "…" if len(full_response) > 1990 else ""
-                        )
-                        await reply.edit(content=display or "…")
-                        last_edit_len = len(full_response)
         except Exception as exc:
-            await reply.edit(content=f"Error: {exc}")
+            err = await msg.channel.send(f"Error: {exc}")
+            tracker.track(err)
             return
 
         if not full_response:
-            await reply.edit(content="(no response)")
+            reply = await msg.channel.send("(no response)")
+            tracker.track(reply)
             return
 
         history.add(msg.channel.id, "assistant", full_response)
 
         parts = _split(full_response)
-        await reply.edit(content=parts[0])
+        reply = await msg.channel.send(parts[0])
+        tracker.track(reply)
         for part in parts[1:]:
             extra = await msg.channel.send(part)
             tracker.track(extra)
