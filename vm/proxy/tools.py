@@ -3,6 +3,7 @@ import base64
 import json
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime
 from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
@@ -386,6 +387,31 @@ ALL_TOOL_SCHEMAS = [
             "repo": {"type": "string", "description": "Repository in 'owner/repo' format"},
         },
         ["repo"],
+    ),
+    _schema(
+        "schedule_create",
+        "Create a persistent scheduled task that runs a prompt on a cron schedule. Survives restarts.",
+        {
+            "cron": {"type": "string", "description": "Standard 5-field cron expression e.g. '0 9 * * *' (9am daily), '*/15 * * * *' (every 15 min)"},
+            "prompt": {"type": "string", "description": "The task prompt to run at each scheduled time"},
+            "channel": {"type": "string", "description": "Discord channel name to post results to"},
+            "label": {"type": "string", "description": "Short human-readable label for the task (optional)"},
+        },
+        ["cron", "prompt", "channel"],
+    ),
+    _schema(
+        "schedule_list",
+        "List all active scheduled tasks with their IDs, cron expressions, and next run times.",
+        {},
+        [],
+    ),
+    _schema(
+        "schedule_delete",
+        "Delete a scheduled task by its ID.",
+        {
+            "job_id": {"type": "string", "description": "Job ID to delete (from schedule_list)"},
+        },
+        ["job_id"],
     ),
     _schema(
         "crypto_price",
@@ -1211,6 +1237,35 @@ async def execute_remind(
         return f"Error setting reminder: {e}"
 
 
+async def execute_schedule_create(cron: str, prompt: str, channel: str, label: str, config: "Config") -> str:
+    from proxy.scheduler import schedule_create
+    try:
+        job = schedule_create(config, cron, prompt, channel, label)
+        next_dt = datetime.fromtimestamp(job["next_run"]).strftime("%Y-%m-%d %H:%M")
+        return f"Scheduled task created (ID: `{job['id']}`)\n**{job['label']}**\nCron: `{cron}` · Next run: {next_dt} UTC"
+    except ValueError as e:
+        return f"Error: {e}"
+
+
+async def execute_schedule_list(config: "Config") -> str:
+    from proxy.scheduler import schedule_list
+    jobs = schedule_list(config)
+    if not jobs:
+        return "No scheduled tasks."
+    lines = ["**Scheduled tasks:**"]
+    for job in jobs:
+        next_dt = datetime.fromtimestamp(job["next_run"]).strftime("%Y-%m-%d %H:%M")
+        lines.append(f"• `{job['id']}` — {job['label']} · `{job['cron']}` · next: {next_dt} UTC · runs: {job['run_count']}")
+    return "\n".join(lines)
+
+
+async def execute_schedule_delete(job_id: str, config: "Config") -> str:
+    from proxy.scheduler import schedule_delete
+    if schedule_delete(config, job_id):
+        return f"Scheduled task `{job_id}` deleted."
+    return f"No task found with ID `{job_id}`."
+
+
 async def execute_ollama_models(config: "Config") -> str:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -1930,6 +1985,12 @@ async def dispatch_tool(name: str, args: dict[str, Any], config: "Config") -> st
         )
     if name == "remind":
         return await execute_remind(args["action"], args["when"], args.get("context"), args.get("channel"), config)
+    if name == "schedule_create":
+        return await execute_schedule_create(args["cron"], args["prompt"], args["channel"], args.get("label", ""), config)
+    if name == "schedule_list":
+        return await execute_schedule_list(config)
+    if name == "schedule_delete":
+        return await execute_schedule_delete(args["job_id"], config)
     if name == "ollama_models":
         return await execute_ollama_models(config)
     if name == "github_list_issues":

@@ -1,7 +1,9 @@
+import asyncio
 import logging
 import traceback
 
 import httpx
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from proxy.config import Config, get_config
@@ -13,11 +15,18 @@ from proxy.rate_limit import TokenBucket
 from proxy.tool_loop import run_tool_loop
 from proxy.streaming import stream_from_ollama
 from proxy.tools import execute_deep_research, execute_deepdive
+from proxy.scheduler import scheduler_loop
 
 
 def create_app(config: Config | None = None) -> FastAPI:
     cfg = config or get_config()
-    app = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        asyncio.create_task(scheduler_loop(cfg))
+        yield
+
+    app = FastAPI(lifespan=lifespan)
     rate_limiter = TokenBucket(burst=cfg.rate_limit_burst, per_minute=cfg.rate_limit_per_min)
 
     @app.middleware("http")

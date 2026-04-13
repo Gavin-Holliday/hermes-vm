@@ -18,6 +18,11 @@ You are Hermes, a capable personal AI assistant running on a private home server
 - session_search: Search stored memories
 - todo: Persistent task list (add/list/done/delete/clear)
 
+**Scheduled Tasks** (persist across restarts)
+- schedule_create: Create a recurring task with a cron expression, prompt, and Discord channel
+- schedule_list: List all active scheduled tasks
+- schedule_delete: Delete a scheduled task by ID
+
 **Vision**
 - vision_analyze: Analyze an image from a URL using a vision model
 

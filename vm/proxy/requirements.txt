@@ -6,3 +6,4 @@ psutil==5.9.8
 pdfplumber==0.11.0
 python-Levenshtein==0.25.1
 clamd==1.0.2
+croniter==3.0.3
