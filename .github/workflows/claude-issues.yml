@@ -30,6 +30,7 @@ jobs:
             --add-label "in-progress" || true
 
       - name: Implement, commit, and close issue
+        id: claude
         working-directory: /Users/gavinholliday/Projects/hermes-vm
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -54,3 +55,34 @@ jobs:
           gh issue edit ${{ github.event.issue.number }} \
             --repo Gavin-Holliday/hermes-vm \
             --remove-label "in-progress" || true
+
+      - name: Comment on issue with failure details
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --repo Gavin-Holliday/hermes-vm \
+            --body "**Claude was unable to complete this issue automatically.**
+
+          The implementation run failed and needs human input.
+
+          **Run logs:** ${RUN_URL}
+
+          Please review the logs, clarify the issue description, or implement manually. Re-add the \`claude\` label once the issue is updated to retry."
+
+      - name: Notify Discord on failure
+        if: failure() && secrets.DISCORD_WEBHOOK_URL != ''
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"content\": \"⚠️ **Claude needs help with issue #${ISSUE_NUMBER}**\n\n**${ISSUE_TITLE}**\n${ISSUE_URL}\n\nThe automated implementation failed. Check the logs or clarify the issue, then re-add the \`claude\` label to retry.\n\n**Logs:** ${RUN_URL}\"
+            }"
