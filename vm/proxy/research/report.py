@@ -110,15 +110,19 @@ class ReportBuilder:
                 e["footer"] = footer
             embeds.append(e)
 
-        # If sources overflow the field (>1024), add a dedicated sources embed
+        # If sources overflow the field (>1024), paginate into dedicated source embeds
         if len(sources_text) > 1024:
-            embeds.append({
-                "title": f"{report.title} — Sources",
-                "description": sources_text[:4096],
-                "color": 0x4F8EF7,
-                "fields": [],
-                "footer": footer,
-            })
+            source_pages = _chunk_text(sources_text, 4096)
+            for j, src_page in enumerate(source_pages):
+                src_embed = {
+                    "title": f"{report.title} — Sources" if j == 0 else f"{report.title} — Sources (cont.)",
+                    "description": src_page,
+                    "color": 0x4F8EF7,
+                    "fields": [],
+                }
+                if j == len(source_pages) - 1:
+                    src_embed["footer"] = footer
+                embeds.append(src_embed)
 
         return embeds
 
